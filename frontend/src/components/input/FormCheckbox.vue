@@ -26,3 +26,11 @@ function handleChange(event: Event) {
 		<slot>{{ label }}</slot>
 	</label>
 </template>
+
+<style lang="scss" scoped>
+label.checkbox {
+	display: inline-flex;
+	align-items: center;
+	gap: .5rem;
+}
+</style>

@@ -611,7 +611,7 @@ async function updateSettings() {
 	grid-template-columns: 1fr;
 }
 
-.field > label.two-col {
+:deep(.field > label.two-col) {
 	display: flex;
 	align-items: center;
 	gap: .5rem;
@@ -620,15 +620,10 @@ async function updateSettings() {
 		flex: 0 0 50%;
 	}
 
-	input, .input, .select, .timezone-select, :deep(.multiselect) {
+	input, .input, .select, .timezone-select, .multiselect {
 		flex: 0 0 50%;
 		box-sizing: border-box;
 	}
-}
-
-label.checkbox {
-	display: flex;
-	gap: .5rem;
 }
 
 .sticky-save {
