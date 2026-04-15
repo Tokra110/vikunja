@@ -2,7 +2,7 @@
 import {computed, ref, useId} from 'vue'
 
 interface Props {
-	modelValue?: string | number
+	modelValue?: string | number | Date | null
 	id?: string
 	disabled?: boolean
 	loading?: boolean
@@ -13,6 +13,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
 	'update:modelValue': [value: string | number]
 }>()
+
 
 defineOptions({inheritAttrs: false})
 

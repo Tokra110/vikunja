@@ -14,7 +14,7 @@ describe('FormField', () => {
 		const wrapper = mount(FormField, {
 			props: {
 				modelValue: 'initial',
-				'onUpdate:modelValue': (val: string) => wrapper.setProps({modelValue: val}),
+				'onUpdate:modelValue': (val: string | number) => wrapper.setProps({modelValue: val}),
 			},
 		})
 		const input = wrapper.find('input')

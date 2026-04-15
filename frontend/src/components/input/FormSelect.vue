@@ -2,7 +2,7 @@
 import {computed, useId} from 'vue'
 
 interface Props {
-	modelValue?: string | number
+	modelValue?: string | number | null
 	id?: string
 	disabled?: boolean
 	loading?: boolean

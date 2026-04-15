@@ -5,39 +5,30 @@
 		:loading="loading"
 	>
 		<div class="field-group">
-			<div class="field">
-				<label
-					:for="`newName${id}`"
-					class="two-col"
-				>
-					<span>
-						{{ $t('user.settings.general.name') }}
-					</span>
-					<input
-						:id="`newName${id}`"
-						v-model="settings.name"
-						:disabled="isExternalUser"
-						class="input"
-						:placeholder="$t('user.settings.general.newName')"
-						type="text"
-						@keyup.enter="updateSettings"
-					>
-				</label>
-				<p
-					v-if="isExternalUser"
-					class="help"
-				>
-					{{ $t('user.settings.general.externalUserNameChange', {provider: authStore.info.authProvider}) }}
-				</p>
-			</div>
-			<div class="field">
-				<label class="two-col">
-					<span>
-						{{ $t('user.settings.general.defaultProject') }}
-					</span>
-					<ProjectSearch v-model="defaultProject" />
-				</label>
-			</div>
+			<FormField
+				:label="$t('user.settings.general.name')"
+				layout="two-col"
+			>
+				<FormInput
+					v-model="settings.name"
+					:disabled="isExternalUser"
+					:placeholder="$t('user.settings.general.newName')"
+					type="text"
+					@keyup.enter="updateSettings"
+				/>
+			</FormField>
+			<p
+				v-if="isExternalUser"
+				class="help"
+			>
+				{{ $t('user.settings.general.externalUserNameChange', {provider: authStore.info.authProvider}) }}
+			</p>
+			<FormField
+				:label="$t('user.settings.general.defaultProject')"
+				layout="two-col"
+			>
+				<ProjectSearch v-model="defaultProject" />
+			</FormField>
 		</div>
 	</Card>
 
@@ -47,111 +38,75 @@
 		:loading="loading"
 	>
 		<div class="field-group">
-			<div class="field">
-				<label class="two-col">
-					<span>
-						{{ $t('user.settings.general.defaultView') }}
-					</span>
-					<div class="select">
-						<select v-model="settings.frontendSettings.defaultView">
-							<option
-								v-for="view in DEFAULT_PROJECT_VIEW_SETTINGS"
-								:key="view"
-								:value="view"
-							>
-								{{ $t(`project.${view}.title`) }}
-							</option>
-						</select>
-					</div>
-				</label>
-			</div>
-			<div class="field">
-				<label class="two-col">
-					<span>
-						{{ $t('user.settings.general.minimumPriority') }}
-					</span>
-					<div class="select">
-						<select v-model="settings.frontendSettings.minimumPriority">
-							<option :value="PRIORITIES.LOW">
-								{{ $t('task.priority.low') }}
-							</option>
-							<option :value="PRIORITIES.MEDIUM">
-								{{ $t('task.priority.medium') }}
-							</option>
-							<option :value="PRIORITIES.HIGH">
-								{{ $t('task.priority.high') }}
-							</option>
-							<option :value="PRIORITIES.URGENT">
-								{{ $t('task.priority.urgent') }}
-							</option>
-							<option :value="PRIORITIES.DO_NOW">
-								{{ $t('task.priority.doNow') }}
-							</option>
-						</select>
-					</div>
-				</label>
-			</div>
-			<div
+			<FormField
+				:label="$t('user.settings.general.defaultView')"
+				layout="two-col"
+			>
+				<FormSelect v-model="settings.frontendSettings.defaultView">
+					<option
+						v-for="view in DEFAULT_PROJECT_VIEW_SETTINGS"
+						:key="view"
+						:value="view"
+					>
+						{{ $t(`project.${view}.title`) }}
+					</option>
+				</FormSelect>
+			</FormField>
+			<FormField
+				:label="$t('user.settings.general.minimumPriority')"
+				layout="two-col"
+			>
+				<FormSelect v-model="settings.frontendSettings.minimumPriority">
+					<option :value="PRIORITIES.LOW">
+						{{ $t('task.priority.low') }}
+					</option>
+					<option :value="PRIORITIES.MEDIUM">
+						{{ $t('task.priority.medium') }}
+					</option>
+					<option :value="PRIORITIES.HIGH">
+						{{ $t('task.priority.high') }}
+					</option>
+					<option :value="PRIORITIES.URGENT">
+						{{ $t('task.priority.urgent') }}
+					</option>
+					<option :value="PRIORITIES.DO_NOW">
+						{{ $t('task.priority.doNow') }}
+					</option>
+				</FormSelect>
+			</FormField>
+			<FormField
 				v-if="hasFilters"
-				class="field"
+				:label="$t('user.settings.general.filterUsedOnOverview')"
+				layout="two-col"
 			>
-				<label class="two-col">
-					<span>
-						{{ $t('user.settings.general.filterUsedOnOverview') }}
-					</span>
-					<ProjectSearch
-						v-model="filterUsedInOverview"
-						:saved-filters-only="true"
-					/>
-				</label>
-			</div>
-			<div class="field">
-				<label class="checkbox">
-					<input
-						v-model="settings.frontendSettings.showLastViewed"
-						type="checkbox"
-					>
-					{{ $t('user.settings.general.showLastViewed') }}
-				</label>
-			</div>
-			<div class="field">
-				<label class="checkbox">
-					<input
-						v-model="settings.emailRemindersEnabled"
-						type="checkbox"
-					>
-					{{ $t('user.settings.general.emailReminders') }}
-				</label>
-			</div>
-			<div class="field">
-				<label class="checkbox">
-					<input
-						v-model="settings.overdueTasksRemindersEnabled"
-						type="checkbox"
-					>
-					{{ $t('user.settings.general.overdueReminders') }}
-				</label>
-			</div>
-			<div
+				<ProjectSearch
+					v-model="filterUsedInOverview"
+					:saved-filters-only="true"
+				/>
+			</FormField>
+			<FormCheckbox
+				v-model="settings.frontendSettings.showLastViewed"
+				:label="$t('user.settings.general.showLastViewed')"
+			/>
+			<FormCheckbox
+				v-model="settings.emailRemindersEnabled"
+				:label="$t('user.settings.general.emailReminders')"
+			/>
+			<FormCheckbox
+				v-model="settings.overdueTasksRemindersEnabled"
+				:label="$t('user.settings.general.overdueReminders')"
+			/>
+			<FormField
 				v-if="settings.overdueTasksRemindersEnabled"
-				class="field"
+				:label="$t('user.settings.general.overdueTasksRemindersTime')"
+				layout="two-col"
 			>
-				<label
-					for="overdueTasksReminderTime"
-					class="two-col"
-				>
-					<span>
-						{{ $t('user.settings.general.overdueTasksRemindersTime') }}
-					</span>
-					<input
-						id="overdueTasksReminderTime"
-						v-model="settings.overdueTasksRemindersTime"
-						class="input"
-						type="time"
-						@keyup.enter="updateSettings"
-					>
-				</label>
-			</div>
+				<FormInput
+					v-model="settings.overdueTasksRemindersTime"
+					type="time"
+					@keyup.enter="updateSettings"
+				/>
+			</FormField>
 		</div>
 	</Card>
 
@@ -161,88 +116,77 @@
 		:loading="loading"
 	>
 		<div class="field-group">
-			<div class="field">
-				<label class="two-col">
-					<span>
-						{{ $t('user.settings.general.language') }}
-					</span>
-					<div class="select">
-						<select v-model="settings.language">
-							<option
-								v-for="lang in availableLanguageOptions"
-								:key="lang.code"
-								:value="lang.code"
-							>{{ lang.title }}
-							</option>
-						</select>
-					</div>
-				</label>
-			</div>
-			<div class="field">
-				<label class="two-col">
-					<span>
-						{{ $t('user.settings.general.timezone') }}
-					</span>
-					<Multiselect
-						v-model="timezoneObject"
-						:placeholder="$t('user.settings.general.timezone')"
-						:search-results="timezoneSearchResults"
-						:show-empty="true"
-						class="timezone-select"
-						label="label"
-						select-placeholder=""
-						@search="searchTimezones"
-					/>
-				</label>
-			</div>
-			<div class="field">
-				<label class="two-col">
-					<span>
-						{{ $t('user.settings.general.weekStart') }}
-					</span>
-					<div class="select">
-						<select v-model.number="settings.weekStart">
-							<option value="0">{{ $t('user.settings.general.weekStartSunday') }}</option>
-							<option value="1">{{ $t('user.settings.general.weekStartMonday') }}</option>
-						</select>
-					</div>
-				</label>
-			</div>
-			<div class="field">
-				<label class="two-col">
-					<span>
-						{{ $t('user.settings.general.dateDisplay') }}
-					</span>
-					<div class="select">
-						<select v-model="settings.frontendSettings.dateDisplay">
-							<option
-								v-for="(label, value) in dateDisplaySettings"
-								:key="value"
-								:value="value"
-							>{{ label }}</option>
-						</select>
-					</div>
-				</label>
-			</div>
-			<div
-				v-if="settings.frontendSettings.dateDisplay !== 'relative'"
-				class="field"
+			<FormField
+				:label="$t('user.settings.general.language')"
+				layout="two-col"
 			>
-				<label class="two-col">
-					<span>
-						{{ $t('user.settings.general.timeFormat') }}
-					</span>
-					<div class="select">
-						<select v-model="settings.frontendSettings.timeFormat">
-							<option
-								v-for="(label, value) in timeFormatSettings"
-								:key="value"
-								:value="value"
-							>{{ label }}</option>
-						</select>
-					</div>
-				</label>
-			</div>
+				<FormSelect v-model="settings.language">
+					<option
+						v-for="lang in availableLanguageOptions"
+						:key="lang.code"
+						:value="lang.code"
+					>
+						{{ lang.title }}
+					</option>
+				</FormSelect>
+			</FormField>
+			<FormField
+				:label="$t('user.settings.general.timezone')"
+				layout="two-col"
+			>
+				<Multiselect
+					v-model="timezoneObject"
+					:placeholder="$t('user.settings.general.timezone')"
+					:search-results="timezoneSearchResults"
+					:show-empty="true"
+					class="timezone-select"
+					label="label"
+					select-placeholder=""
+					@search="searchTimezones"
+				/>
+			</FormField>
+			<FormField
+				:label="$t('user.settings.general.weekStart')"
+				layout="two-col"
+			>
+				<FormSelect v-model.number="settings.weekStart">
+					<option value="0">
+						{{ $t('user.settings.general.weekStartSunday') }}
+					</option>
+					<option value="1">
+						{{ $t('user.settings.general.weekStartMonday') }}
+					</option>
+				</FormSelect>
+			</FormField>
+			<FormField
+				:label="$t('user.settings.general.dateDisplay')"
+				layout="two-col"
+			>
+				<FormSelect v-model="settings.frontendSettings.dateDisplay">
+					<option
+						v-for="(label, value) in dateDisplaySettings"
+						:key="value"
+						:value="value"
+					>
+						{{ label }}
+					</option>
+				</FormSelect>
+			</FormField>
+			<FormField
+				v-if="settings.frontendSettings.dateDisplay !== 'relative'"
+				:label="$t('user.settings.general.timeFormat')"
+				layout="two-col"
+			>
+				<FormSelect v-model="settings.frontendSettings.timeFormat">
+					<option
+						v-for="(label, value) in timeFormatSettings"
+						:key="value"
+						:value="value"
+					>
+						{{ label }}
+					</option>
+				</FormSelect>
+			</FormField>
 		</div>
 	</Card>
 
@@ -252,42 +196,34 @@
 		:loading="loading"
 	>
 		<div class="field-group">
-			<div class="field">
-				<label class="two-col">
-					<span>
-						{{ $t('user.settings.appearance.title') }}
-					</span>
-					<div class="select">
-						<select v-model="settings.frontendSettings.colorSchema">
-							<option
-								v-for="(title, schemeId) in colorSchemeSettings"
-								:key="schemeId"
-								:value="schemeId"
-							>
-								{{ title }}
-							</option>
-						</select>
-					</div>
-				</label>
-			</div>
-			<div class="field">
-				<label class="two-col">
-					<span>
-						{{ $t('user.settings.quickAddMagic.title') }}
-					</span>
-					<div class="select">
-						<select v-model="settings.frontendSettings.quickAddMagicMode">
-							<option
-								v-for="set in PrefixMode"
-								:key="set"
-								:value="set"
-							>
-								{{ $t(`user.settings.quickAddMagic.${set}`) }}
-							</option>
-						</select>
-					</div>
-				</label>
-			</div>
+			<FormField
+				:label="$t('user.settings.appearance.title')"
+				layout="two-col"
+			>
+				<FormSelect v-model="settings.frontendSettings.colorSchema">
+					<option
+						v-for="(title, schemeId) in colorSchemeSettings"
+						:key="schemeId"
+						:value="schemeId"
+					>
+						{{ title }}
+					</option>
+				</FormSelect>
+			</FormField>
+			<FormField
+				:label="$t('user.settings.quickAddMagic.title')"
+				layout="two-col"
+			>
+				<FormSelect v-model="settings.frontendSettings.quickAddMagicMode">
+					<option
+						v-for="set in PrefixMode"
+						:key="set"
+						:value="set"
+					>
+						{{ $t(`user.settings.quickAddMagic.${set}`) }}
+					</option>
+				</FormSelect>
+			</FormField>
 			<div
 				v-if="settings.frontendSettings.quickAddMagicMode !== PrefixMode.Disabled"
 				class="field"
@@ -305,66 +241,44 @@
 					:allow-absolute="false"
 				/>
 			</div>
-			<div class="field">
-				<label class="two-col">
-					<span>
-						{{ $t('user.settings.general.defaultTaskRelationType') }}
-					</span>
-					<div class="select">
-						<select v-model="settings.frontendSettings.defaultTaskRelationType">
-							<option
-								v-for="relationKind in RELATION_KINDS"
-								:key="relationKind"
-								:value="relationKind"
-							>
-								{{ $t(`task.relation.kinds.${relationKind}`, 1) }}
-							</option>
-						</select>
-					</div>
-				</label>
-			</div>
-			<div class="field">
-				<label class="checkbox">
-					<input
-						v-model="settings.frontendSettings.playSoundWhenDone"
-						type="checkbox"
+			<FormField
+				:label="$t('user.settings.general.defaultTaskRelationType')"
+				layout="two-col"
+			>
+				<FormSelect v-model="settings.frontendSettings.defaultTaskRelationType">
+					<option
+						v-for="relationKind in RELATION_KINDS"
+						:key="relationKind"
+						:value="relationKind"
 					>
-					{{ $t('user.settings.general.playSoundWhenDone') }}
-				</label>
-			</div>
-			<div class="field">
-				<label class="checkbox">
-					<input
-						v-model="settings.frontendSettings.allowIconChanges"
-						type="checkbox"
-					>
-					{{ $t('user.settings.general.allowIconChanges') }}
-				</label>
-			</div>
-			<div class="field">
-				<label class="checkbox">
-					<input
-						v-model="settings.frontendSettings.alwaysShowBucketTaskCount"
-						type="checkbox"
-					>
-					{{ $t('user.settings.general.alwaysShowBucketTaskCount') }}
-				</label>
-			</div>
-			<div class="field">
-				<label class="two-col">
-					<span>
-						{{ $t('user.settings.backgroundBrightness.title') }}
-					</span>
-					<input 
-						v-model.number="settings.frontendSettings.backgroundBrightness"
-						class="input"
-						type="number"
-						min="0"
-						max="100"
-						@blur="enforceBackgroundBrightnessBounds"
-					>
-				</label>
-			</div>
+						{{ $t(`task.relation.kinds.${relationKind}`, 1) }}
+					</option>
+				</FormSelect>
+			</FormField>
+			<FormCheckbox
+				v-model="settings.frontendSettings.playSoundWhenDone"
+				:label="$t('user.settings.general.playSoundWhenDone')"
+			/>
+			<FormCheckbox
+				v-model="settings.frontendSettings.allowIconChanges"
+				:label="$t('user.settings.general.allowIconChanges')"
+			/>
+			<FormCheckbox
+				v-model="settings.frontendSettings.alwaysShowBucketTaskCount"
+				:label="$t('user.settings.general.alwaysShowBucketTaskCount')"
+			/>
+			<FormField
+				:label="$t('user.settings.backgroundBrightness.title')"
+				layout="two-col"
+			>
+				<FormInput
+					v-model.number="settings.frontendSettings.backgroundBrightness"
+					type="number"
+					min="0"
+					max="100"
+					@blur="enforceBackgroundBrightnessBounds"
+				/>
+			</FormField>
 		</div>
 	</Card>
 
@@ -375,20 +289,15 @@
 		:loading="loading"
 	>
 		<div class="field-group">
-			<div class="field">
-				<label
-					:for="`quickEntryShortcut${id}`"
-					class="two-col"
-				>
-					<span>
-						{{ $t('user.settings.desktop.quickEntryShortcut') }}
-					</span>
-					<ShortcutRecorder
-						v-model="settings.frontendSettings.desktopQuickEntryShortcut"
-						@update:modelValue="updateSettings"
-					/>
-				</label>
-			</div>
+			<FormField
+				:label="$t('user.settings.desktop.quickEntryShortcut')"
+				layout="two-col"
+			>
+				<ShortcutRecorder
+					v-model="settings.frontendSettings.desktopQuickEntryShortcut"
+					@update:modelValue="updateSettings"
+				/>
+			</FormField>
 		</div>
 	</Card>
 
@@ -398,24 +307,14 @@
 		:loading="loading"
 	>
 		<div class="field-group">
-			<div class="field">
-				<label class="checkbox">
-					<input
-						v-model="settings.discoverableByName"
-						type="checkbox"
-					>
-					{{ $t('user.settings.general.discoverableByName') }}
-				</label>
-			</div>
-			<div class="field">
-				<label class="checkbox">
-					<input
-						v-model="settings.discoverableByEmail"
-						type="checkbox"
-					>
-					{{ $t('user.settings.general.discoverableByEmail') }}
-				</label>
-			</div>
+			<FormCheckbox
+				v-model="settings.discoverableByName"
+				:label="$t('user.settings.general.discoverableByName')"
+			/>
+			<FormCheckbox
+				v-model="settings.discoverableByEmail"
+				:label="$t('user.settings.general.discoverableByEmail')"
+			/>
 		</div>
 	</Card>
 
@@ -445,9 +344,12 @@ import {PrefixMode} from '@/modules/quickAddMagic'
 import ProjectSearch from '@/components/tasks/partials/ProjectSearch.vue'
 import Multiselect from '@/components/input/Multiselect.vue'
 import CustomTransition from '@/components/misc/CustomTransition.vue'
+import FormField from '@/components/input/FormField.vue'
+import FormInput from '@/components/input/FormInput.vue'
+import FormSelect from '@/components/input/FormSelect.vue'
+import FormCheckbox from '@/components/input/FormCheckbox.vue'
 
 import {SUPPORTED_LOCALES} from '@/i18n'
-import {createRandomID} from '@/helpers/randomId'
 import {AuthenticatedHTTPFactory} from '@/helpers/fetcher'
 import {formatDisplayDateFormat} from '@/helpers/time/formatDate'
 
@@ -635,7 +537,6 @@ const {
 	timezoneObject,
 } = useAvailableTimezones(settings)
 
-const id = ref(createRandomID())
 const availableLanguageOptions = ref(
 	Object.entries(SUPPORTED_LOCALES)
 		.map(l => ({code: l[0], title: l[1]}))
