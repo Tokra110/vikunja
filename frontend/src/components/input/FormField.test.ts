@@ -199,4 +199,29 @@ describe('FormField', () => {
 		await input.setValue('test value')
 		expect(wrapper.vm.value).toBe('test value')
 	})
+
+	it('renders two-col layout with wrapping label', () => {
+		const wrapper = mount(FormField, {
+			props: {label: 'Name', layout: 'two-col'},
+			slots: {
+				default: '<input class="input" />',
+			},
+		})
+		const label = wrapper.find('label.two-col')
+		expect(label.exists()).toBe(true)
+		expect(label.find('span').text()).toBe('Name')
+		expect(label.find('input.input').exists()).toBe(true)
+	})
+
+	it('two-col layout exposes id via slot scope', () => {
+		const wrapper = mount({
+			components: {FormField},
+			template: `
+				<FormField label="X" layout="two-col" id="custom-id" v-slot="{id}">
+					<input :id="id" />
+				</FormField>
+			`,
+		})
+		expect(wrapper.find('input').attributes('id')).toBe('custom-id')
+	})
 })
