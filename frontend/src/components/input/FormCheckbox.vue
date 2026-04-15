@@ -32,5 +32,9 @@ label.checkbox {
 	display: inline-flex;
 	align-items: center;
 	gap: .5rem;
+
+	&:not(:last-child) {
+		margin-block-end: .75rem;
+	}
 }
 </style>
