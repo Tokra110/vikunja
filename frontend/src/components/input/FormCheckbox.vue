@@ -29,9 +29,10 @@ function handleChange(event: Event) {
 
 <style lang="scss" scoped>
 label.checkbox {
-	display: inline-flex;
+	display: flex;
 	align-items: center;
 	gap: .5rem;
+	inline-size: fit-content;
 
 	&:not(:last-child) {
 		margin-block-end: .75rem;
