@@ -615,15 +615,16 @@ async function updateSettings() {
 	display: flex;
 	align-items: center;
 	gap: .5rem;
+}
 
-	> span {
-		flex: 0 0 50%;
-	}
-
-	input, .input, .select, .timezone-select, .multiselect {
-		flex: 0 0 50%;
-		box-sizing: border-box;
-	}
+:deep(.field > label.two-col > span),
+:deep(.field > label.two-col input),
+:deep(.field > label.two-col .input),
+:deep(.field > label.two-col .select),
+:deep(.field > label.two-col .timezone-select),
+:deep(.field > label.two-col .multiselect) {
+	flex: 0 0 50%;
+	box-sizing: border-box;
 }
 
 .sticky-save {
