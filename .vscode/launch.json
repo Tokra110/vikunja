@@ -8,7 +8,7 @@
             "name": "Launch frontend dev",
             "type": "node-terminal",
             "request": "launch",
-            "command": "pnpm run dev",
+            "command": "export PATH=$HOME/.nvm/versions/node/v24.15.0/bin:$PATH && pnpm run dev",
             "cwd": "${workspaceRoot}/frontend"
         },
         {
