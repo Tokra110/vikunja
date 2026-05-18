@@ -23,20 +23,32 @@
 		<template #default>
 			<div
 				:class="{ 'is-loading': loading }"
-				class="loader-container is-max-width-desktop list-view"
+				class="loader-container list-view"
 			>
 				<Card
 					:padding="false"
 					:has-content="false"
 					class="has-overflow"
 				>
-					<AddTask
+					<div
 						v-if="!project?.isArchived && canWrite"
-						ref="addTaskRef"
-						class="list-view__add-task d-print-none"
-						:default-position="firstNewPosition"
-						@taskAdded="updateTaskList"
-					/>
+						class="list-view__add-card d-print-none"
+					>
+						<AddTask
+							ref="addTaskRef"
+							class="list-view__add-task"
+							:default-position="firstNewPosition"
+							@taskAdded="onTaskAdded"
+						/>
+						<div class="list-view__add-fields">
+							<InlineQuickAddFields
+								ref="addFieldsRef"
+								:project-id="projectId"
+								:disabled="false"
+								variant="inline"
+							/>
+						</div>
+					</div>
 
 					<Nothing v-if="ctaVisible && tasks.length === 0 && !loading">
 						{{ $t('project.list.empty') }}
@@ -108,6 +120,7 @@ import ProjectWrapper from '@/components/project/ProjectWrapper.vue'
 import ButtonLink from '@/components/misc/ButtonLink.vue'
 import AddTask from '@/components/tasks/AddTask.vue'
 import SingleTaskInProject from '@/components/tasks/partials/SingleTaskInProject.vue'
+import InlineQuickAddFields from '@/components/project/views/InlineQuickAddFields.vue'
 import FilterPopup from '@/components/project/partials/FilterPopup.vue'
 import Nothing from '@/components/misc/Nothing.vue'
 import Pagination from '@/components/misc/Pagination.vue'
@@ -209,9 +222,37 @@ if (typeof window !== 'undefined') {
 const dragHandle = computed(() => isTouchDevice.value ? '.handle' : undefined)
 
 const addTaskRef = ref<typeof AddTask | null>(null)
+const addFieldsRef = ref<InstanceType<typeof InlineQuickAddFields> | null>(null)
 
 function focusNewTaskInput() {
 	addTaskRef.value?.focusTaskInput()
+}
+
+async function onTaskAdded(task: ITask) {
+	const fieldValues = addFieldsRef.value?.getFieldValues()
+	if (fieldValues) {
+		const updates: Partial<ITask> = {}
+		if (fieldValues.dueDate) updates.dueDate = fieldValues.dueDate
+		if (fieldValues.startDate) updates.startDate = fieldValues.startDate
+		if (fieldValues.endDate) updates.endDate = fieldValues.endDate
+		if (fieldValues.priority) updates.priority = fieldValues.priority
+		if (fieldValues.hexColor) updates.hexColor = fieldValues.hexColor
+		if (fieldValues.percentDone) updates.percentDone = fieldValues.percentDone / 100
+		if (fieldValues.reminders.length > 0) updates.reminders = fieldValues.reminders
+
+		if (Object.keys(updates).length > 0) {
+			await taskStore.update({...task, ...updates})
+		}
+
+		await Promise.all([
+			...fieldValues.assignees.map(user => taskStore.addAssignee({user, taskId: task.id})),
+			...fieldValues.labels.map(label => taskStore.addLabel({label, taskId: task.id})),
+		])
+
+		addFieldsRef.value.reset()
+	}
+
+	updateTaskList(task)
 }
 
 function updateTaskList(task: ITask) {
@@ -370,6 +411,15 @@ onBeforeUnmount(() => {
 
 .tasks {
 	padding: .5rem;
+	display: flex;
+	flex-direction: column;
+	gap: .5rem;
+
+	:deep(.single-task) {
+		box-shadow: var(--shadow-xs);
+		border-radius: $radius;
+		background: var(--white);
+	}
 }
 
 .task-ghost {
@@ -382,8 +432,20 @@ onBeforeUnmount(() => {
 	}
 }
 
+.list-view__add-card {
+	box-shadow: var(--shadow-xs);
+	border-radius: $radius;
+	background: var(--white);
+	padding: .75rem;
+	margin: .5rem;
+}
+
 .list-view__add-task {
-	padding: 1rem 1rem 0;
+	padding: 0;
+}
+
+.list-view__add-fields {
+	padding-block-start: .5rem;
 }
 
 .link-share-view .card {
@@ -419,6 +481,9 @@ onBeforeUnmount(() => {
 
 	:deep(.card) {
 		margin-block-end: 0;
+		background: transparent;
+		box-shadow: none;
+		border: none;
 	}
 }
 </style>
