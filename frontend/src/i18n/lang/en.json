@@ -172,7 +172,8 @@
             "percentDone": "Progress",
             "endDate": "End date"
           },
-          "addField": "Add field"
+          "addField": "Add field",
+          "maxReached": "Maximum of {max} fields can be shown"
         },
         "filterUsedOnOverview": "Saved filter used on the overview page",
         "showLastViewed": "Show last viewed projects on the overview page",
@@ -803,6 +804,8 @@
       "nextMonday": "Next Monday",
       "thisWeekend": "This Weekend",
       "laterThisWeek": "Later This Week",
+      "thisFriday": "This Friday",
+      "nextFriday": "Next Friday",
       "nextWeek": "Next Week",
       "chooseDate": "Choose a date"
     },

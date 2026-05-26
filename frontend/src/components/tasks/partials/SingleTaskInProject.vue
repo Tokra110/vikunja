@@ -5,8 +5,9 @@
 	>
 		<div
 			ref="taskRoot"
-			:class="{'is-loading': taskService.loading}"
+			:class="{'is-loading': taskService.loading, 'has-custom-background-color': getHexColor(task.hexColor)}"
 			class="task loader-container single-task"
+			:style="{'background-color': getHexColor(task.hexColor) || undefined}"
 			tabindex="-1"
 			@click="openTaskDetail"
 			@keyup.enter="openTaskDetail"
@@ -90,25 +91,19 @@
 					>
 						<Icon icon="pen" />
 					</BaseButton>
-				</div>
 
-				<div
-					v-if="!task.done"
-					class="task-inline-fields"
-				>
-					<BaseButton
-						v-if="!disabled && !isArchived"
-						class="task-add-fields-button"
-						@click.stop
+					<div
+						v-if="!task.done"
+						class="task-inline-fields"
 					>
-						<Icon icon="plus" />
-					</BaseButton>
-					<InlineQuickAddFields
-						:task="task"
-						:project-id="task.projectId"
-						variant="inline"
-						:disabled="isArchived || disabled"
-					/>
+						<InlineQuickAddFields
+							:task="task"
+							:project-id="task.projectId"
+							variant="inline"
+							:disabled="isArchived || disabled"
+							@taskUpdated="t => { task = t; emit('taskUpdated', t) }"
+						/>
+					</div>
 				</div>
 			</div>
 
@@ -379,7 +374,7 @@ defineExpose({
 <style lang="scss" scoped>
 .task {
 	display: flex;
-	padding: 1rem .4rem .6rem;
+	padding: .5rem .4rem;
 	transition: background-color $transition;
 	align-items: center;
 	cursor: pointer;
@@ -418,9 +413,6 @@ defineExpose({
 	.task-content {
 		flex: 1 1 0;
 		min-inline-size: 0;
-		display: flex;
-		flex-direction: column;
-		gap: .65rem;
 	}
 
 	.task-title-row {
@@ -482,8 +474,10 @@ defineExpose({
 	.task-inline-fields {
 		display: inline-flex;
 		align-items: center;
-		align-self: flex-start;
-		gap: .5rem;
+		margin-inline-start: .5rem;
+		padding-inline-start: .5rem;
+		border-inline-start: 1px solid var(--grey-200);
+		flex-shrink: 0;
 
 		:deep(.inline-quick-add-chip:not(.is-set)) {
 			opacity: 0;
@@ -491,25 +485,12 @@ defineExpose({
 			pointer-events: none;
 			transition: opacity .2s ease, clip-path .2s ease;
 		}
-
-		&:hover :deep(.inline-quick-add-chip:not(.is-set)) {
-			opacity: .5;
-			clip-path: inset(0 0 0 0);
-			pointer-events: auto;
-		}
 	}
 
-	.task-add-fields-button {
-		color: var(--grey-400);
-		font-size: .75rem;
-		padding: .15rem .3rem;
-		border-radius: $radius;
-		flex-shrink: 0;
-		transition: color $transition;
-
-		&:hover {
-			color: var(--primary);
-		}
+	&:hover .task-inline-fields :deep(.inline-quick-add-chip:not(.is-set)) {
+		opacity: .5;
+		clip-path: inset(0 0 0 0);
+		pointer-events: auto;
 	}
 
 	.task-description-icon {

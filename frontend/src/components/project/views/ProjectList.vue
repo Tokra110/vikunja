@@ -241,13 +241,19 @@ async function onTaskAdded(task: ITask) {
 		if (fieldValues.reminders.length > 0) updates.reminders = fieldValues.reminders
 
 		if (Object.keys(updates).length > 0) {
-			await taskStore.update({...task, ...updates})
+			task = await taskStore.update({...task, ...updates})
 		}
 
 		await Promise.all([
 			...fieldValues.assignees.map(user => taskStore.addAssignee({user, taskId: task.id})),
 			...fieldValues.labels.map(label => taskStore.addLabel({label, taskId: task.id})),
 		])
+
+		task = {
+			...task,
+			assignees: fieldValues.assignees,
+			labels: fieldValues.labels,
+		}
 
 		addFieldsRef.value.reset()
 	}
@@ -419,6 +425,10 @@ onBeforeUnmount(() => {
 		box-shadow: var(--shadow-xs);
 		border-radius: $radius;
 		background: var(--white);
+
+		&.has-custom-background-color {
+			background: none;
+		}
 	}
 }
 

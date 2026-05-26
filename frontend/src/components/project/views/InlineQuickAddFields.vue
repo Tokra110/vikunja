@@ -3,13 +3,14 @@
 		v-if="hasAnyField"
 		class="inline-quick-add-chip-bar"
 		:class="{'inline-quick-add-chip-bar--inline': variant === 'inline'}"
+		@mouseenter.once="preloadPopupData"
 	>
 		<button
 			v-for="chip in inlineChips"
 			:key="chip.field"
 			type="button"
 			class="inline-quick-add-chip"
-			:class="[`inline-quick-add-chip--${chip.modifier}`, {'is-set': chip.isSet}]"
+			:class="[`inline-quick-add-chip--${chip.modifier}`, {'is-set': chip.isSet, 'is-overdue': chip.isOverdue}]"
 			:disabled="disabled || undefined"
 			@click.stop="toggleInlinePopup(chip.popup, $event)"
 		>
@@ -19,12 +20,31 @@
 				:style="{background: chip.colorValue}"
 			/>
 			<Icon
-				v-else
+				v-else-if="!chip.assignees && !chip.labels"
 				:icon="chip.icon"
 				class="inline-quick-add-chip__icon"
 				:class="`inline-quick-add-chip__icon--${chip.modifier}`"
 			/>
-			<span>{{ chip.label }}</span>
+			<template v-if="chip.assignees">
+				<User
+					v-for="a in chip.assignees"
+					:key="a.id"
+					:user="a"
+					:avatar-size="20"
+					:show-username="false"
+					:is-inline="true"
+					class="inline-quick-add-chip__avatar"
+				/>
+			</template>
+			<template v-else-if="chip.labels">
+				<XLabel
+					v-for="l in chip.labels"
+					:key="l.id"
+					:label="l"
+					class="inline-quick-add-chip__label"
+				/>
+			</template>
+			<span v-else>{{ chip.label }}</span>
 			<span
 				v-if="chip.isSet"
 				class="inline-quick-add-chip__clear"
@@ -200,6 +220,7 @@ import {includesById} from '@/helpers/utils'
 import {DEFAULT_INLINE_QUICK_ADD_FIELDS} from '@/modelTypes/IUserSettings'
 import type {IUser} from '@/modelTypes/IUser'
 import type {ILabel} from '@/modelTypes/ILabel'
+import XLabel from '@/components/tasks/partials/Label.vue'
 import type {ITask} from '@/modelTypes/ITask'
 import type {ITaskReminder} from '@/modelTypes/ITaskReminder'
 import type {IReminderPeriodRelativeTo} from '@/types/IReminderPeriodRelativeTo'
@@ -217,6 +238,10 @@ const props = withDefaults(defineProps<{
 }>(), {
 	variant: 'grid',
 })
+
+const emit = defineEmits<{
+	'taskUpdated': [task: ITask]
+}>()
 
 const isEditMode = computed(() => props.task !== undefined)
 
@@ -397,6 +422,19 @@ async function saveEditField(popup: Exclude<PopupKind, null>) {
 			break
 		}
 	}
+
+	emit('taskUpdated', {
+		...task,
+		dueDate: fields.value.dueDate,
+		startDate: fields.value.startDate,
+		endDate: fields.value.endDate,
+		priority: fields.value.priority,
+		hexColor: fields.value.color,
+		percentDone: fields.value.percentDone / 100,
+		reminders: [...fields.value.reminders],
+		assignees: [...fields.value.assignees],
+		labels: [...fields.value.labels],
+	})
 }
 
 // --- Enabled fields ---
@@ -620,15 +658,18 @@ const hasPopupChanges = computed(() => {
 const anchorChipRect = ref<DOMRect | null>(null)
 let popupResizeObserver: ResizeObserver | null = null
 
-async function toggleInlinePopup(which: Exclude<PopupKind, null>, event: MouseEvent) {
+function preloadPopupData() {
+	if (projectMembers.value.length === 0) {
+		loadProjectMembers()
+	}
+}
+
+function toggleInlinePopup(which: Exclude<PopupKind, null>, event: MouseEvent) {
 	if (openPopup.value === which) {
 		openPopup.value = null
 		return
 	}
 	const chip = event.currentTarget as HTMLElement
-	if (which === 'assignee' && projectMembers.value.length === 0) {
-		await loadProjectMembers()
-	}
 	const rect = chip.getBoundingClientRect()
 	anchorChipRect.value = rect
 	popupPosition.value = {
@@ -728,8 +769,11 @@ type InlineChip = {
 	icon: string
 	popup: Exclude<PopupKind, null>
 	isSet: boolean
+	isOverdue: boolean
 	label: string
 	colorValue?: string
+	assignees?: IUser[]
+	labels?: ILabel[]
 }
 
 const CHIP_CONFIG: Record<string, {modifier: string, icon: string, popup: Exclude<PopupKind, null>}> = {
@@ -789,16 +833,26 @@ const inlineChips = computed<InlineChip[]>(() => {
 		percentDone: () => fields.value.percentDone > 0,
 	}
 
+	const now = new Date()
+	function isDateOverdue(d: Date | null): boolean {
+		return d !== null && d.getTime() < now.getTime()
+	}
+
 	const chips = enabledFields.value.map(field => {
 		const cfg = CHIP_CONFIG[field]
+		const isOverdue = field === 'dueDate' && isDateOverdue(fields.value.dueDate)
+			|| field === 'endDate' && isDateOverdue(fields.value.endDate)
 		return {
 			field,
 			modifier: cfg.modifier,
 			icon: cfg.icon,
 			popup: cfg.popup,
 			isSet: chipIsSet[field](),
+			isOverdue,
 			label: chipLabel[field](),
 			colorValue: field === 'color' && fields.value.color ? fields.value.color : undefined,
+			assignees: field === 'assignee' && fields.value.assignees.length > 0 ? fields.value.assignees : undefined,
+			labels: field === 'labels' && fields.value.labels.length > 0 ? fields.value.labels : undefined,
 		}
 	})
 
@@ -866,10 +920,6 @@ const taskColor = computed(() => fields.value.color)
 async function openForField(field: string, anchorEl: HTMLElement) {
 	const cfg = CHIP_CONFIG[field]
 	if (!cfg) return
-
-	if (cfg.popup === 'assignee' && projectMembers.value.length === 0) {
-		await loadProjectMembers()
-	}
 
 	if (openPopup.value === cfg.popup) {
 		openPopup.value = null
@@ -957,7 +1007,10 @@ defineExpose({
 
 .inline-quick-add-chip__icon {
 	font-size: .85rem;
+	color: var(--grey-500);
+}
 
+.inline-quick-add-chip:not(.is-set) .inline-quick-add-chip__icon {
 	&--due {
 		color: var(--danger);
 	}
@@ -975,12 +1028,24 @@ defineExpose({
 	&--reminder {
 		color: var(--primary);
 	}
+}
 
-	&--end,
-	&--color,
-	&--percent {
-		color: var(--grey-500);
+.inline-quick-add-chip.is-overdue .inline-quick-add-chip__icon {
+	color: var(--danger-dark);
+}
+
+.inline-quick-add-chip__avatar {
+	:deep(.avatar) {
+		border-radius: 50%;
 	}
+
+	& + .inline-quick-add-chip__avatar {
+		margin-inline-start: -.35rem;
+	}
+}
+
+.inline-quick-add-chip__label {
+	pointer-events: none;
 }
 
 .inline-quick-add-chip__swatch {
@@ -1016,29 +1081,28 @@ defineExpose({
 	display: flex;
 }
 
-.inline-quick-add-chip--due.is-set {
+.inline-quick-add-chip.is-set {
+	background: var(--grey-100);
+	color: var(--grey-700);
+	border-color: var(--grey-200);
+}
+
+.inline-quick-add-chip--labels.is-set {
+	background: transparent;
+	border-color: transparent;
+	padding: 0;
+	gap: .25rem;
+
+	&:hover:not(:disabled) {
+		background: transparent;
+		box-shadow: none;
+	}
+}
+
+.inline-quick-add-chip.is-overdue {
 	background: var(--danger-light);
 	color: var(--danger-dark);
-}
-
-.inline-quick-add-chip--start.is-set,
-.inline-quick-add-chip--end.is-set {
-	background: var(--success-light);
-	color: var(--success-dark);
-}
-
-.inline-quick-add-chip--priority.is-set {
-	background: var(--warning-light);
-	color: var(--warning-dark);
-}
-
-.inline-quick-add-chip--assignee.is-set,
-.inline-quick-add-chip--labels.is-set,
-.inline-quick-add-chip--reminder.is-set,
-.inline-quick-add-chip--percent.is-set,
-.inline-quick-add-chip--color.is-set {
-	background: var(--primary-light);
-	color: var(--primary-dark);
+	border-color: transparent;
 }
 
 .inline-quick-add-popup {

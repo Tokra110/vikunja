@@ -248,6 +248,12 @@
 						{{ $t(`user.settings.general.inlineQuickAddFields.field.${field}`) }}
 					</DropdownItem>
 				</Dropdown>
+				<span
+					v-else
+					class="inline-quick-add-field-adder__limit"
+				>
+					{{ $t('user.settings.general.inlineQuickAddFields.maxReached', {max: MAX_INLINE_FIELDS}) }}
+				</span>
 			</div>
 			<FormField
 				:label="$t('user.settings.general.defaultTaskRelationType')"
@@ -618,8 +624,11 @@ onBeforeMount(() => {
 	const fields = settings.value.frontendSettings.inlineQuickAddFields ?? DEFAULT_INLINE_QUICK_ADD_FIELDS
 	enabledInlineFields.value = fields.map(f => ({field: f}))
 })
+const MAX_INLINE_FIELDS = 6
 const availableInlineFields = computed(() =>
-	INLINE_QUICK_ADD_FIELDS.filter(f => !enabledInlineFields.value.some(e => e.field === f)),
+	enabledInlineFields.value.length >= MAX_INLINE_FIELDS
+		? []
+		: INLINE_QUICK_ADD_FIELDS.filter(f => !enabledInlineFields.value.some(e => e.field === f)),
 )
 
 function syncInlineFieldsToSettings() {
@@ -744,6 +753,13 @@ async function updateSettings() {
 			opacity: 1;
 			background: var(--grey-100);
 		}
+	}
+
+	&__limit {
+		display: block;
+		padding: .35rem .5rem;
+		color: var(--grey-400);
+		font-size: .85rem;
 	}
 }
 
