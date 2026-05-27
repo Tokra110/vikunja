@@ -214,7 +214,7 @@ import {secondsToPeriod} from '@/helpers/time/period'
 import ColorPicker from '@/components/input/ColorPicker.vue'
 import XButton from '@/components/input/Button.vue'
 
-import {formatDateShort, formatDisplayDate} from '@/helpers/time/formatDate'
+import {formatDisplayDate} from '@/helpers/time/formatDate'
 import {closeWhenClickedOutside} from '@/helpers/closeWhenClickedOutside'
 import {includesById} from '@/helpers/utils'
 import {DEFAULT_INLINE_QUICK_ADD_FIELDS} from '@/modelTypes/IUserSettings'
@@ -809,12 +809,11 @@ const reminderChipLabel = computed(() => {
 })
 
 const inlineChips = computed<InlineChip[]>(() => {
-	const formatDate = isEditMode.value ? formatDisplayDate : formatDateShort
 	const chipLabel: Record<string, () => string> = {
 		assignee: () => assigneeChipLabel.value,
-		dueDate: () => fields.value.dueDate !== null ? formatDate(fields.value.dueDate) : t('task.attributes.dueDate'),
-		startDate: () => fields.value.startDate !== null ? formatDate(fields.value.startDate) : t('task.attributes.startDate'),
-		endDate: () => fields.value.endDate !== null ? formatDate(fields.value.endDate) : t('task.attributes.endDate'),
+		dueDate: () => fields.value.dueDate !== null ? formatDisplayDate(fields.value.dueDate) : t('task.attributes.dueDate'),
+		startDate: () => fields.value.startDate !== null ? formatDisplayDate(fields.value.startDate) : t('task.attributes.startDate'),
+		endDate: () => fields.value.endDate !== null ? formatDisplayDate(fields.value.endDate) : t('task.attributes.endDate'),
 		priority: () => fields.value.priority !== 0 ? t(`task.priority.${PRIORITY_LABEL_KEYS[fields.value.priority]}`) : t('task.attributes.priority'),
 		labels: () => labelsChipLabel.value,
 		reminder: () => reminderChipLabel.value,
@@ -958,6 +957,7 @@ defineExpose({
 	grid-template-columns: 1fr 1fr;
 	gap: .375rem;
 	margin-block-start: .5rem;
+	interpolate-size: allow-keywords;
 }
 
 .inline-quick-add-chip-bar--inline {
@@ -966,6 +966,7 @@ defineExpose({
 	grid-template-columns: unset;
 	gap: .25rem;
 	margin-block-start: .25rem;
+	interpolate-size: allow-keywords;
 
 	.inline-quick-add-chip:not(.is-set) {
 		opacity: .45;
@@ -989,8 +990,9 @@ defineExpose({
 	// Prevents avatars and label pills from expanding the chip.
 	block-size: calc(.8rem * 1.2 + .6rem + 2px);
 	box-sizing: border-box;
+	overflow: hidden;
 	cursor: pointer;
-	transition: background-color $transition, color $transition, border-color $transition, box-shadow $transition;
+	transition: background-color $transition, color $transition, border-color $transition, box-shadow $transition, inline-size 400ms ease, padding $transition, gap $transition, opacity $transition;
 
 	&:hover:not(:disabled) {
 		background: var(--primary-light);

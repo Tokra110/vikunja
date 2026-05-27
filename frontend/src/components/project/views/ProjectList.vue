@@ -23,7 +23,7 @@
 		<template #default>
 			<div
 				ref="taskListRef"
-				:class="{ 'is-loading': loading }"
+				:class="{ 'is-loading': loading, 'is-nesting': nestTargetTaskId !== null }"
 				class="loader-container list-view"
 			>
 				<Card
@@ -77,10 +77,15 @@
 						}"
 						:animation="100"
 						:handle="dragHandle"
+						:force-fallback="true"
+						fallback-class="task-fallback"
+						filter=".subtask-nested, .subtask-nested *, .relation-blocking, .relation-blocking *, .relation-related, .relation-related *"
+						:prevent-on-filter="false"
 						:delay-on-touch-only="!isTouchDevice"
 						:delay="isTouchDevice ? 0 : 1000"
 						ghost-class="task-ghost"
 						@start="handleDragStart"
+						@move="onDragMove"
 						@end="saveTaskPosition"
 					>
 						<template #item="{element: task, index}">
@@ -116,7 +121,7 @@
 
 
 <script setup lang="ts">
-import {ref, computed, nextTick, onMounted, onBeforeUnmount, watch, toRef} from 'vue'
+import {ref, computed, nextTick, onMounted, onBeforeUnmount, watch, toRef, provide} from 'vue'
 import draggable from 'zhyswan-vuedraggable'
 
 import ProjectWrapper from '@/components/project/ProjectWrapper.vue'
@@ -179,6 +184,13 @@ function canNestInto(draggedId: number, targetId: number): boolean {
 }
 
 const {nestTargetTaskId, startDrag: startNestDetection, endDrag: endNestDetection} = useTaskDragNesting(taskListRef, canNestInto)
+
+provide('nestDetection', {
+	startDrag: startNestDetection,
+	endDrag: endNestDetection,
+	nestTargetTaskId,
+	nestTaskAsSubtask: (childTask: ITask, parentTaskId: number) => nestTaskAsSubtask(childTask, parentTaskId),
+})
 
 const {
 	tasks: allTasks,
@@ -326,6 +338,10 @@ function handleDragStart(e: { item: HTMLElement }) {
 	}
 }
 
+function onDragMove() {
+	if (nestTargetTaskId.value !== null) return false
+}
+
 async function saveTaskPosition(e: { originalEvent?: MouseEvent, to: HTMLElement, from: HTMLElement, newIndex: number, item?: HTMLElement }) {
 	drag.value = false
 	const {nestTargetId} = endNestDetection()
@@ -375,11 +391,11 @@ async function nestTaskAsSubtask(childTask: ITask, parentTaskId: number) {
 	const parentTask = allTasks.value.find(t => t.id === parentTaskId)
 	if (!parentTask) return
 
-	// Prevent nesting a task that's already a subtask of this parent
-	if (parentTask.relatedTasks?.subtask?.some(s => s.id === childTask.id)) return
-
-	// Prevent nesting a task that already has this parent
-	if (childTask.relatedTasks?.parenttask?.some(p => p.id === parentTaskId)) return
+	// Prevent nesting if any relation already exists between these tasks
+	const rt = parentTask.relatedTasks ?? {}
+	for (const tasks of Object.values(rt)) {
+		if ((tasks as ITask[])?.some((t: ITask) => t.id === childTask.id)) return
+	}
 
 	try {
 		await taskRelationService.create(new TaskRelationModel({
@@ -507,13 +523,28 @@ onBeforeUnmount(() => {
 }
 
 .task-ghost {
-	border-radius: $radius;
-	background: var(--grey-100);
-	border: 2px dashed var(--grey-300);
+	height: 3px !important;
+	min-height: 0 !important;
+	padding: 0 !important;
+	margin: 2px 0;
+	overflow: hidden;
+	background: var(--primary);
+	border: none;
+	border-radius: 2px;
+	opacity: 1;
 
 	* {
-		opacity: 0;
+		display: none;
 	}
+}
+
+.is-nesting .task-ghost {
+	display: none !important;
+}
+
+.task-fallback {
+	opacity: .6;
+	box-shadow: var(--shadow-md);
 }
 
 .list-view__add-card {

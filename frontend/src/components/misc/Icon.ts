@@ -62,6 +62,7 @@ import {
 	faSearch,
 	faShareAlt,
 	faSignOutAlt,
+	faBan,
 	faSitemap,
 	faSort,
 	faSortUp,
@@ -174,6 +175,7 @@ library.add(faSave)
 library.add(faSearch)
 library.add(faShareAlt)
 library.add(faSignOutAlt)
+library.add(faBan)
 library.add(faSitemap)
 library.add(faSort)
 library.add(faSortUp)

@@ -2,6 +2,7 @@
 	<div
 		:data-task-id="task.id"
 		:data-project-id="task.projectId"
+		@pointerdown="parentRelation ? onDetachPointerDown($event) : undefined"
 	>
 		<div
 			ref="taskRoot"
@@ -168,28 +169,25 @@
 			</BaseButton>
 			<slot />
 		</div>
-		<template v-if="typeof task.relatedTasks?.subtask !== 'undefined'">
-			<template v-for="subtask in sortedSubtasks">
-				<template v-if="getTaskById(subtask.id)">
-					<single-task-in-project
-						:key="subtask.id"
-						:the-task="getTaskById(subtask.id)"
-						:disabled="disabled"
-						:can-mark-as-done="canMarkAsDone"
-						:all-tasks="allTasks"
-						:parent-relation="{ parentTaskId: task.id, relationKind: getSubtaskRelationKind(subtask.id) }"
-						:class="getSubtaskClass(subtask.id)"
-						@taskUpdated="t => emit('taskUpdated', t)"
-						@relationChanged="onSubtaskRelationChanged"
-					/>
-				</template>
+		<template v-for="child in allChildRelations" :key="child.task.id">
+			<template v-if="getTaskById(child.task.id)">
+				<single-task-in-project
+					:the-task="getTaskById(child.task.id)"
+					:disabled="disabled"
+					:can-mark-as-done="canMarkAsDone"
+					:all-tasks="allTasks"
+					:parent-relation="{ parentTaskId: task.id, relationKind: child.kind }"
+					:class="getRelationClass(child.kind)"
+					@taskUpdated="t => emit('taskUpdated', t)"
+					@relationChanged="onSubtaskRelationChanged"
+				/>
 			</template>
 		</template>
 	</div>
 </template>
 
 <script setup lang="ts">
-import {ref, watch, shallowReactive, computed, nextTick, type ComponentInstance} from 'vue'
+import {ref, watch, shallowReactive, computed, nextTick, inject, type ComponentInstance, type Ref} from 'vue'
 import {useI18n} from 'vue-i18n'
 
 import TaskModel, {getHexColor} from '@/models/task'
@@ -241,7 +239,16 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
 	'taskUpdated': [task: ITask],
 	'relationChanged': [payload?: { taskId: number, newKind: IRelationKind }],
+	'subtaskDetached': [taskId: number],
 }>()
+
+type NestDetection = {
+	startDrag: (id: number) => void,
+	endDrag: () => {nestTargetId: number | null},
+	nestTargetTaskId: Ref<number | null>,
+	nestTaskAsSubtask: (child: ITask, parentId: number) => Promise<void>,
+}
+const nestDetection = inject<NestDetection | null>('nestDetection', null)
 
 function getTaskById(taskId: number): ITask | undefined {
 	if (typeof props.allTasks === 'undefined' || props.allTasks.length === 0) {
@@ -259,21 +266,37 @@ const currentRelationKind = computed<IRelationKind>(() => {
 	return props.parentRelation?.relationKind ?? RELATION_KIND.SUBTASK
 })
 
-function getSubtaskRelationKind(subtaskId: number): IRelationKind {
-	return localRelationKinds.value[subtaskId] ?? RELATION_KIND.SUBTASK
-}
+const allChildRelations = computed(() => {
+	const rt = task.value.relatedTasks ?? {}
+	const children: {task: ITask, kind: IRelationKind}[] = []
 
-const sortedSubtasks = computed(() => {
-	const subtasks = task.value.relatedTasks?.subtask ?? []
-	return [...subtasks].sort((a, b) => {
-		const aBlocking = getSubtaskRelationKind(a.id) === RELATION_KIND.BLOCKING ? 0 : 1
-		const bBlocking = getSubtaskRelationKind(b.id) === RELATION_KIND.BLOCKING ? 0 : 1
+	for (const t of (rt.subtask ?? [])) {
+		const override = localRelationKinds.value[t.id]
+		children.push({task: t, kind: override ?? RELATION_KIND.SUBTASK})
+	}
+	for (const t of (rt.blocking ?? [])) {
+		if (!children.some(c => c.task.id === t.id)) {
+			children.push({task: t, kind: RELATION_KIND.BLOCKING})
+		}
+	}
+	// Related tasks are symmetric (A→B and B→A), so only render them
+	// when this task is not already a nested child (prevents infinite loop)
+	if (!props.parentRelation) {
+		for (const t of (rt.related ?? [])) {
+			if (!children.some(c => c.task.id === t.id)) {
+				children.push({task: t, kind: RELATION_KIND.RELATED})
+			}
+		}
+	}
+
+	return children.sort((a, b) => {
+		const aBlocking = a.kind === RELATION_KIND.BLOCKING ? 0 : 1
+		const bBlocking = b.kind === RELATION_KIND.BLOCKING ? 0 : 1
 		return aBlocking - bBlocking
 	})
 })
 
-function getSubtaskClass(subtaskId: number): Record<string, boolean> {
-	const kind = getSubtaskRelationKind(subtaskId)
+function getRelationClass(kind: IRelationKind): Record<string, boolean> {
 	return {
 		'subtask-nested': kind === RELATION_KIND.SUBTASK,
 		'relation-blocking': kind === RELATION_KIND.BLOCKING,
@@ -318,6 +341,96 @@ async function removeRelation() {
 	} catch (e: unknown) {
 		error(e)
 	}
+}
+
+function onDetachPointerDown(e: PointerEvent) {
+	if (!props.parentRelation) return
+	if ((e.target as HTMLElement)?.closest('a, button, label, input, [contenteditable], .favorite, [role="button"]')) return
+
+	const startX = e.clientX
+	const startY = e.clientY
+	const el = taskRoot.value
+	let clone: HTMLElement | null = null
+	let dragging = false
+	let offsetX = 0
+	let offsetY = 0
+
+	function onMove(me: PointerEvent) {
+		const dx = me.clientX - startX
+		const dy = me.clientY - startY
+
+		if (!dragging && Math.sqrt(dx * dx + dy * dy) > 10) {
+			dragging = true
+			nestDetection?.startDrag(task.value.id)
+			if (el) {
+				const rect = el.getBoundingClientRect()
+				offsetX = startX - rect.left
+				offsetY = startY - rect.top
+				clone = el.cloneNode(true) as HTMLElement
+				Object.assign(clone.style, {
+					position: 'fixed',
+					width: `${rect.width}px`,
+					top: `${rect.top}px`,
+					left: `${rect.left}px`,
+					opacity: '0.85',
+					pointerEvents: 'none',
+					zIndex: '10000',
+					boxShadow: '0 4px 12px rgba(0,0,0,.15)',
+					borderRadius: 'var(--radius, 4px)',
+					transition: 'none',
+				})
+				document.body.appendChild(clone)
+				el.style.opacity = '0.25'
+			}
+		}
+
+		if (dragging && clone) {
+			clone.style.top = `${me.clientY - offsetY}px`
+			clone.style.left = `${me.clientX - offsetX}px`
+		}
+	}
+
+	async function onUp() {
+		if (dragging) {
+			clone?.remove()
+			if (el) el.style.opacity = ''
+			const {nestTargetId} = nestDetection?.endDrag() ?? {nestTargetId: null}
+
+			if (!props.parentRelation) return cleanup()
+
+			try {
+				// Delete old parent relation
+				await taskRelationService.delete(new TaskRelationModel({
+					taskId: props.parentRelation.parentTaskId,
+					otherTaskId: task.value.id,
+					relationKind: props.parentRelation.relationKind,
+				}))
+
+				// If dropping onto a new parent, create the new relation
+				if (nestTargetId !== null && nestTargetId !== props.parentRelation.parentTaskId) {
+					await taskRelationService.create(new TaskRelationModel({
+						taskId: nestTargetId,
+						otherTaskId: task.value.id,
+						relationKind: RELATION_KIND.SUBTASK,
+					}))
+				}
+
+				// Single reload after all API calls complete
+				emit('relationChanged')
+			} catch (e: unknown) {
+				error(e)
+			}
+		}
+		cleanup()
+	}
+
+	function cleanup() {
+		document.removeEventListener('pointermove', onMove)
+		document.removeEventListener('pointerup', onUp)
+	}
+
+	document.addEventListener('pointermove', onMove)
+	document.addEventListener('pointerup', onUp)
 }
 
 function onSubtaskRelationChanged(payload?: { taskId: number, newKind: IRelationKind }) {
@@ -491,8 +604,16 @@ defineExpose({
 	border: 2px solid transparent;
 
 	&.is-nest-target {
-		border: 2px solid var(--primary);
-		background-color: hsla(var(--primary-hsl), 0.05);
+		border: 2px solid var(--success);
+		background-color: hsla(var(--success-h), var(--success-s), var(--success-l), 0.06);
+		box-shadow: 0 0 8px hsla(var(--success-h), var(--success-s), var(--success-l), 0.2);
+		transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
+		animation: nest-pulse 1.5s ease-in-out infinite;
+	}
+
+	@keyframes nest-pulse {
+		0%, 100% { box-shadow: 0 0 6px hsla(var(--success-h), var(--success-s), var(--success-l), 0.15); }
+		50% { box-shadow: 0 0 12px hsla(var(--success-h), var(--success-s), var(--success-l), 0.3); }
 	}
 
 	&:hover {
