@@ -153,16 +153,13 @@ import TaskPositionModel from '@/models/taskPosition'
 import TaskRelationService from '@/services/taskRelation'
 import TaskRelationModel from '@/models/taskRelation'
 import {RELATION_KIND} from '@/types/IRelationKind'
-import {success, error} from '@/message'
-import {useI18n} from 'vue-i18n'
+import {error} from '@/message'
 
 const props = defineProps<{
         isLoadingProject: boolean,
         projectId: IProject['id'],
         viewId: IProjectView['id'],
 }>()
-
-const {t} = useI18n({useScope: 'global'})
 
 const projectId = toRef(props, 'projectId')
 
@@ -178,8 +175,13 @@ function canNestInto(draggedId: number, targetId: number): boolean {
 	const dragged = allTasks.value.find(t => t.id === draggedId)
 	const target = allTasks.value.find(t => t.id === targetId)
 	if (!dragged || !target) return false
-	if (target.relatedTasks?.subtask?.some(s => s.id === draggedId)) return false
-	if (dragged.relatedTasks?.parenttask?.some(p => p.id === targetId)) return false
+
+	for (const tasks of Object.values(target.relatedTasks ?? {})) {
+		if ((tasks as ITask[])?.some(t => t.id === draggedId)) return false
+	}
+	for (const tasks of Object.values(dragged.relatedTasks ?? {})) {
+		if ((tasks as ITask[])?.some(t => t.id === targetId)) return false
+	}
 	return true
 }
 
@@ -392,9 +394,11 @@ async function nestTaskAsSubtask(childTask: ITask, parentTaskId: number) {
 	if (!parentTask) return
 
 	// Prevent nesting if any relation already exists between these tasks
-	const rt = parentTask.relatedTasks ?? {}
-	for (const tasks of Object.values(rt)) {
-		if ((tasks as ITask[])?.some((t: ITask) => t.id === childTask.id)) return
+	for (const rel of Object.values(parentTask.relatedTasks ?? {})) {
+		if ((rel as ITask[])?.some((t: ITask) => t.id === childTask.id)) return
+	}
+	for (const rel of Object.values(childTask.relatedTasks ?? {})) {
+		if ((rel as ITask[])?.some((t: ITask) => t.id === parentTaskId)) return
 	}
 
 	try {
@@ -404,21 +408,7 @@ async function nestTaskAsSubtask(childTask: ITask, parentTaskId: number) {
 			relationKind: RELATION_KIND.SUBTASK,
 		}))
 
-		// Update parent's relatedTasks locally
-		if (!parentTask.relatedTasks) parentTask.relatedTasks = {}
-		if (!parentTask.relatedTasks.subtask) parentTask.relatedTasks.subtask = []
-		parentTask.relatedTasks.subtask.push(childTask)
-
-		// Update child's relatedTasks locally so shouldShowTaskInListView hides it
-		if (!childTask.relatedTasks) childTask.relatedTasks = {}
-		if (!childTask.relatedTasks.parenttask) childTask.relatedTasks.parenttask = []
-		childTask.relatedTasks.parenttask.push(parentTask)
-
-		// Re-filter the visible tasks list (child will be hidden from flat list)
-		const isFiltered = isSavedFilter({id: projectId.value})
-		tasks.value = ([...allTasks.value]).filter(t => shouldShowTaskInListView(t, allTasks.value, isFiltered))
-
-		success({message: t('task.detail.updateSuccess')})
+		await loadTasks()
 	} catch (e: unknown) {
 		error(e)
 	}
