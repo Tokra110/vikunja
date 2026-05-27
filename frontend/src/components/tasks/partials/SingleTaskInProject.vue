@@ -2,11 +2,10 @@
 	<div
 		:data-task-id="task.id"
 		:data-project-id="task.projectId"
-		@pointerdown="parentRelation ? onDetachPointerDown($event) : undefined"
 	>
 		<div
 			ref="taskRoot"
-			:class="{'is-loading': taskService.loading, 'has-custom-background-color': getHexColor(task.hexColor), 'has-popup-open': hasPopupOpen, 'is-nest-target': isNestTarget}"
+			:class="{'is-loading': taskService.loading, 'has-custom-background-color': getHexColor(task.hexColor), 'has-popup-open': hasPopupOpen}"
 			class="task loader-container single-task"
 			:style="{'background-color': getHexColor(task.hexColor) || undefined}"
 			tabindex="-1"
@@ -91,15 +90,6 @@
 						<Icon icon="pen" />
 					</BaseButton>
 
-					<RelationKindChip
-						v-if="parentRelation && !isEditingTitle"
-						:relation-kind="currentRelationKind"
-						class="task-relation-chip"
-						@click.stop
-						@update:relationKind="changeRelationKind"
-						@remove="removeRelation"
-					/>
-
 					<div
 						v-if="!task.done"
 						class="task-inline-fields"
@@ -169,25 +159,11 @@
 			</BaseButton>
 			<slot />
 		</div>
-		<template v-for="child in allChildRelations" :key="child.task.id">
-			<template v-if="getTaskById(child.task.id)">
-				<single-task-in-project
-					:the-task="getTaskById(child.task.id)"
-					:disabled="disabled"
-					:can-mark-as-done="canMarkAsDone"
-					:all-tasks="allTasks"
-					:parent-relation="{ parentTaskId: task.id, relationKind: child.kind }"
-					:class="getRelationClass(child.kind)"
-					@taskUpdated="t => emit('taskUpdated', t)"
-					@relationChanged="onSubtaskRelationChanged"
-				/>
-			</template>
-		</template>
 	</div>
 </template>
 
 <script setup lang="ts">
-import {ref, watch, shallowReactive, computed, nextTick, inject, type ComponentInstance, type Ref} from 'vue'
+import {ref, watch, shallowReactive, computed, nextTick, type ComponentInstance} from 'vue'
 import {useI18n} from 'vue-i18n'
 
 import TaskModel, {getHexColor} from '@/models/task'
@@ -197,18 +173,14 @@ import TaskGlanceTooltip from '@/components/tasks/partials/TaskGlanceTooltip.vue
 import ChecklistSummary from '@/components/tasks/partials/ChecklistSummary.vue'
 import CommentCount from '@/components/tasks/partials/CommentCount.vue'
 import InlineQuickAddFields from '@/components/project/views/InlineQuickAddFields.vue'
-import RelationKindChip from '@/components/tasks/partials/RelationKindChip.vue'
 
 import BaseButton from '@/components/base/BaseButton.vue'
 import FancyCheckbox from '@/components/input/FancyCheckbox.vue'
 import ColorBubble from '@/components/misc/ColorBubble.vue'
 
 import TaskService from '@/services/task'
-import TaskRelationService from '@/services/taskRelation'
-import TaskRelationModel from '@/models/taskRelation'
 
-import {success, error} from '@/message'
-import {RELATION_KIND, type IRelationKind} from '@/types/IRelationKind'
+import {success} from '@/message'
 
 import {useProjectStore} from '@/stores/projects'
 import {useBaseStore} from '@/stores/base'
@@ -224,221 +196,18 @@ const props = withDefaults(defineProps<{
 	disabled?: boolean,
 	canMarkAsDone?: boolean,
 	allTasks?: ITask[],
-	isNestTarget?: boolean,
-	parentRelation?: { parentTaskId: number, relationKind: IRelationKind } | null,
 }>(), {
 	isArchived: false,
 	showProject: false,
 	disabled: false,
 	canMarkAsDone: true,
 	allTasks: () => [],
-	isNestTarget: false,
-	parentRelation: null,
 })
 
 const emit = defineEmits<{
 	'taskUpdated': [task: ITask],
-	'relationChanged': [payload?: { taskId: number, newKind: IRelationKind }],
-	'subtaskDetached': [taskId: number],
+	'relationChanged': [],
 }>()
-
-type NestDetection = {
-	startDrag: (id: number) => void,
-	endDrag: () => {nestTargetId: number | null},
-	nestTargetTaskId: Ref<number | null>,
-	nestTaskAsSubtask: (child: ITask, parentId: number) => Promise<void>,
-}
-const nestDetection = inject<NestDetection | null>('nestDetection', null)
-
-function getTaskById(taskId: number): ITask | undefined {
-	if (typeof props.allTasks === 'undefined' || props.allTasks.length === 0) {
-		return null
-	}
-
-	return props.allTasks.find(t => t.id === taskId)
-}
-
-const taskRelationService = new TaskRelationService()
-
-const localRelationKinds = ref<Record<number, IRelationKind>>({})
-
-const currentRelationKind = computed<IRelationKind>(() => {
-	return props.parentRelation?.relationKind ?? RELATION_KIND.SUBTASK
-})
-
-const allChildRelations = computed(() => {
-	const rt = task.value.relatedTasks ?? {}
-	const children: {task: ITask, kind: IRelationKind}[] = []
-
-	for (const t of (rt.subtask ?? [])) {
-		const override = localRelationKinds.value[t.id]
-		children.push({task: t, kind: override ?? RELATION_KIND.SUBTASK})
-	}
-	for (const t of (rt.blocking ?? [])) {
-		if (!children.some(c => c.task.id === t.id)) {
-			children.push({task: t, kind: RELATION_KIND.BLOCKING})
-		}
-	}
-	// Related tasks are symmetric (A→B and B→A), so only render them
-	// when this task is not already a nested child (prevents infinite loop)
-	if (!props.parentRelation) {
-		for (const t of (rt.related ?? [])) {
-			if (!children.some(c => c.task.id === t.id)) {
-				children.push({task: t, kind: RELATION_KIND.RELATED})
-			}
-		}
-	}
-
-	return children.sort((a, b) => {
-		const aBlocking = a.kind === RELATION_KIND.BLOCKING ? 0 : 1
-		const bBlocking = b.kind === RELATION_KIND.BLOCKING ? 0 : 1
-		return aBlocking - bBlocking
-	})
-})
-
-function getRelationClass(kind: IRelationKind): Record<string, boolean> {
-	return {
-		'subtask-nested': kind === RELATION_KIND.SUBTASK,
-		'relation-blocking': kind === RELATION_KIND.BLOCKING,
-		'relation-related': kind === RELATION_KIND.RELATED,
-	}
-}
-
-async function changeRelationKind(newKind: IRelationKind) {
-	if (!props.parentRelation) return
-	const oldKind = props.parentRelation.relationKind
-
-	try {
-		await taskRelationService.delete(new TaskRelationModel({
-			taskId: props.parentRelation.parentTaskId,
-			otherTaskId: task.value.id,
-			relationKind: oldKind,
-		}))
-
-		await taskRelationService.create(new TaskRelationModel({
-			taskId: props.parentRelation.parentTaskId,
-			otherTaskId: task.value.id,
-			relationKind: newKind,
-		}))
-
-		emit('relationChanged', {taskId: task.value.id, newKind})
-	} catch (e: unknown) {
-		error(e)
-	}
-}
-
-async function removeRelation() {
-	if (!props.parentRelation) return
-
-	try {
-		await taskRelationService.delete(new TaskRelationModel({
-			taskId: props.parentRelation.parentTaskId,
-			otherTaskId: task.value.id,
-			relationKind: props.parentRelation.relationKind,
-		}))
-
-		emit('relationChanged')
-	} catch (e: unknown) {
-		error(e)
-	}
-}
-
-function onDetachPointerDown(e: PointerEvent) {
-	if (!props.parentRelation) return
-	if ((e.target as HTMLElement)?.closest('a, button, label, input, [contenteditable], .favorite, [role="button"]')) return
-
-	const startX = e.clientX
-	const startY = e.clientY
-	const el = taskRoot.value
-	let clone: HTMLElement | null = null
-	let dragging = false
-	let offsetX = 0
-	let offsetY = 0
-
-	function onMove(me: PointerEvent) {
-		const dx = me.clientX - startX
-		const dy = me.clientY - startY
-
-		if (!dragging && Math.sqrt(dx * dx + dy * dy) > 10) {
-			dragging = true
-			nestDetection?.startDrag(task.value.id)
-			if (el) {
-				const rect = el.getBoundingClientRect()
-				offsetX = startX - rect.left
-				offsetY = startY - rect.top
-				clone = el.cloneNode(true) as HTMLElement
-				Object.assign(clone.style, {
-					position: 'fixed',
-					width: `${rect.width}px`,
-					top: `${rect.top}px`,
-					left: `${rect.left}px`,
-					opacity: '0.85',
-					pointerEvents: 'none',
-					zIndex: '10000',
-					boxShadow: '0 4px 12px rgba(0,0,0,.15)',
-					borderRadius: 'var(--radius, 4px)',
-					transition: 'none',
-				})
-				document.body.appendChild(clone)
-				el.style.opacity = '0.25'
-			}
-		}
-
-		if (dragging && clone) {
-			clone.style.top = `${me.clientY - offsetY}px`
-			clone.style.left = `${me.clientX - offsetX}px`
-		}
-	}
-
-	async function onUp() {
-		if (dragging) {
-			clone?.remove()
-			if (el) el.style.opacity = ''
-			const {nestTargetId} = nestDetection?.endDrag() ?? {nestTargetId: null}
-
-			if (!props.parentRelation) return cleanup()
-
-			try {
-				// Delete old parent relation
-				await taskRelationService.delete(new TaskRelationModel({
-					taskId: props.parentRelation.parentTaskId,
-					otherTaskId: task.value.id,
-					relationKind: props.parentRelation.relationKind,
-				}))
-
-				// If dropping onto a new parent, create the new relation
-				if (nestTargetId !== null && nestTargetId !== props.parentRelation.parentTaskId) {
-					await taskRelationService.create(new TaskRelationModel({
-						taskId: nestTargetId,
-						otherTaskId: task.value.id,
-						relationKind: RELATION_KIND.SUBTASK,
-					}))
-				}
-
-				// Single reload after all API calls complete
-				emit('relationChanged')
-			} catch (e: unknown) {
-				error(e)
-			}
-		}
-		cleanup()
-	}
-
-	function cleanup() {
-		document.removeEventListener('pointermove', onMove)
-		document.removeEventListener('pointerup', onUp)
-	}
-
-	document.addEventListener('pointermove', onMove)
-	document.addEventListener('pointerup', onUp)
-}
-
-function onSubtaskRelationChanged(payload?: { taskId: number, newKind: IRelationKind }) {
-	if (payload) {
-		localRelationKinds.value[payload.taskId] = payload.newKind
-	}
-	emit('relationChanged', payload)
-}
 
 const {t} = useI18n({useScope: 'global'})
 
@@ -603,19 +372,6 @@ defineExpose({
 	border-radius: $radius;
 	border: 2px solid transparent;
 
-	&.is-nest-target {
-		border: 2px solid var(--success);
-		background-color: hsla(var(--success-h), var(--success-s), var(--success-l), 0.06);
-		box-shadow: 0 0 8px hsla(var(--success-h), var(--success-s), var(--success-l), 0.2);
-		transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
-		animation: nest-pulse 1.5s ease-in-out infinite;
-	}
-
-	@keyframes nest-pulse {
-		0%, 100% { box-shadow: 0 0 6px hsla(var(--success-h), var(--success-s), var(--success-l), 0.15); }
-		50% { box-shadow: 0 0 12px hsla(var(--success-h), var(--success-s), var(--success-l), 0.3); }
-	}
-
 	&:hover {
 		background-color: var(--grey-100);
 	}
@@ -683,17 +439,6 @@ defineExpose({
 
 	&:hover .task-edit-button,
 	&.has-popup-open .task-edit-button {
-		opacity: 1;
-	}
-
-	.task-relation-chip {
-		opacity: 0;
-		transition: opacity $transition;
-		flex-shrink: 0;
-	}
-
-	&:hover .task-relation-chip,
-	&.has-popup-open .task-relation-chip {
 		opacity: 1;
 	}
 
@@ -875,35 +620,4 @@ defineExpose({
 		border-block-end-color: var(--grey-300);
 	}
 }
-
-.subtask-nested {
-	margin-inline-start: 1.75rem;
-}
-
-.relation-blocking {
-	margin-inline-start: 0;
-	border-inline-start: 3px solid var(--danger);
-	padding-inline-start: calc(1.75rem - 3px);
-}
-
-.relation-related {
-	margin-inline-start: 0;
-
-	:deep(.task) {
-		border-radius: 0;
-		border-block-end: 1px solid var(--grey-100);
-	}
-
-	&:first-child :deep(.task) {
-		border-start-start-radius: $radius;
-		border-start-end-radius: $radius;
-	}
-
-	&:last-child :deep(.task) {
-		border-end-start-radius: $radius;
-		border-end-end-radius: $radius;
-		border-block-end: none;
-	}
-}
-
 </style>

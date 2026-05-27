@@ -23,7 +23,7 @@
 		<template #default>
 			<div
 				ref="taskListRef"
-				:class="{ 'is-loading': loading, 'is-nesting': nestTargetTaskId !== null }"
+				:class="{ 'is-loading': loading }"
 				class="loader-container list-view"
 			>
 				<Card
@@ -61,41 +61,27 @@
 						</ButtonLink>
 					</Nothing>
 
-					<draggable
-						v-if="tasks && tasks.length > 0"
-						v-model="tasks"
-						:group="{name: 'tasks', put: false}"
-						:disabled="!canDragTasks || !isPositionSorting"
-						item-key="id"
-						tag="ul"
-						:component-data="{
-							class: {
-								tasks: true,
-								'dragging-disabled': !canDragTasks || !isPositionSorting
-							},
-							type: 'transition-group'
-						}"
-						:animation="100"
-						:handle="dragHandle"
-						:force-fallback="true"
-						fallback-class="task-fallback"
-						filter=".subtask-nested, .subtask-nested *, .relation-blocking, .relation-blocking *, .relation-related, .relation-related *"
-						:prevent-on-filter="false"
-						:delay-on-touch-only="!isTouchDevice"
-						:delay="isTouchDevice ? 0 : 1000"
-						ghost-class="task-ghost"
-						@start="handleDragStart"
-						@move="onDragMove"
-						@end="saveTaskPosition"
+					<Draggable
+						v-if="treeData.length > 0"
+						ref="treeRef"
+						v-model="treeData"
+						:indent="28"
+						:root-droppable="true"
+						:disable-drag="!canDragTasks || !isPositionSorting"
+						:disable-drop="!canDragTasks || !isPositionSorting"
+						:update-behavior="'modify'"
+						:default-open="true"
+						node-key="id"
+						class="tasks"
+						@afterDrop="handleTreeDrop"
 					>
-						<template #item="{element: task, index}">
+						<template #default="{node, stat}">
 							<SingleTaskInProject
-								:ref="(el) => setTaskRef(el, index)"
+								:ref="(el) => setTaskRef(el as InstanceType<typeof SingleTaskInProject> | null, stat.index)"
 								:show-list-color="false"
 								:can-mark-as-done="canWrite || isPseudoProject"
-								:the-task="task"
+								:the-task="node"
 								:all-tasks="allTasks"
-								:is-nest-target="nestTargetTaskId === task.id"
 								@taskUpdated="updateTasks"
 								@relationChanged="loadTasks"
 							>
@@ -107,7 +93,7 @@
 								</span>
 							</SingleTaskInProject>
 						</template>
-					</draggable>
+					</Draggable>
 
 					<Pagination
 						:total-pages="totalPages"
@@ -121,8 +107,9 @@
 
 
 <script setup lang="ts">
-import {ref, computed, nextTick, onMounted, onBeforeUnmount, watch, toRef, provide} from 'vue'
-import draggable from 'zhyswan-vuedraggable'
+import {ref, computed, nextTick, onMounted, onBeforeUnmount, watch, toRef} from 'vue'
+import {Draggable, dragContext} from '@he-tree/vue'
+import '@he-tree/vue/style/default.css'
 
 import ProjectWrapper from '@/components/project/ProjectWrapper.vue'
 import ButtonLink from '@/components/misc/ButtonLink.vue'
@@ -135,8 +122,6 @@ import Pagination from '@/components/misc/Pagination.vue'
 import SortPopup from '@/components/project/partials/SortPopup.vue'
 
 import {useTaskList} from '@/composables/useTaskList'
-import {useTaskDragToProject} from '@/composables/useTaskDragToProject'
-import {useTaskDragNesting} from '@/composables/useTaskDragNesting'
 import {shouldShowTaskInListView} from '@/composables/useTaskListFiltering'
 import {PERMISSIONS as Permissions} from '@/constants/permissions'
 import {calculateItemPosition} from '@/helpers/calculateItemPosition'
@@ -155,6 +140,8 @@ import TaskRelationModel from '@/models/taskRelation'
 import {RELATION_KIND} from '@/types/IRelationKind'
 import {error} from '@/message'
 
+type TreeNode = ITask & { children: TreeNode[] }
+
 const props = defineProps<{
         isLoadingProject: boolean,
         projectId: IProject['id'],
@@ -167,32 +154,8 @@ defineOptions({name: 'List'})
 
 const ctaVisible = ref(false)
 
-const drag = ref(false)
-
 const taskListRef = ref<HTMLElement | null>(null)
-
-function canNestInto(draggedId: number, targetId: number): boolean {
-	const dragged = allTasks.value.find(t => t.id === draggedId)
-	const target = allTasks.value.find(t => t.id === targetId)
-	if (!dragged || !target) return false
-
-	for (const tasks of Object.values(target.relatedTasks ?? {})) {
-		if ((tasks as ITask[])?.some(t => t.id === draggedId)) return false
-	}
-	for (const tasks of Object.values(dragged.relatedTasks ?? {})) {
-		if ((tasks as ITask[])?.some(t => t.id === targetId)) return false
-	}
-	return true
-}
-
-const {nestTargetTaskId, startDrag: startNestDetection, endDrag: endNestDetection} = useTaskDragNesting(taskListRef, canNestInto)
-
-provide('nestDetection', {
-	startDrag: startNestDetection,
-	endDrag: endNestDetection,
-	nestTargetTaskId,
-	nestTaskAsSubtask: (childTask: ITask, parentTaskId: number) => nestTaskAsSubtask(childTask, parentTaskId),
-})
+const treeRef = ref<InstanceType<typeof Draggable> | null>(null)
 
 const {
 	tasks: allTasks,
@@ -226,6 +189,41 @@ watch(
 	},
 )
 
+function buildTaskTree(flatTasks: ITask[]): TreeNode[] {
+	const taskMap = new Map<number, ITask>()
+	for (const t of flatTasks) taskMap.set(t.id, t)
+
+	const childIds = new Set<number>()
+	for (const t of flatTasks) {
+		for (const sub of (t.relatedTasks?.subtask ?? [])) {
+			if (taskMap.has(sub.id)) childIds.add(sub.id)
+		}
+	}
+
+	const roots = flatTasks.filter(t => !childIds.has(t.id))
+
+	function toTreeNode(task: ITask): TreeNode {
+		const subtasks = (task.relatedTasks?.subtask ?? [])
+			.map(s => taskMap.get(s.id))
+			.filter(Boolean) as ITask[]
+		return {
+			...task,
+			children: subtasks.map(toTreeNode),
+		}
+	}
+
+	return roots.map(toTreeNode)
+}
+
+const treeData = ref<TreeNode[]>([])
+watch(
+	tasks,
+	() => {
+		treeData.value = buildTaskTree(tasks.value)
+	},
+	{immediate: true},
+)
+
 const isPositionSorting = computed(() => 'position' in sortByParam.value)
 
 const firstNewPosition = computed(() => {
@@ -238,7 +236,6 @@ const firstNewPosition = computed(() => {
 
 const baseStore = useBaseStore()
 const taskStore = useTaskStore()
-const {handleTaskDropToProject} = useTaskDragToProject()
 const project = computed(() => baseStore.currentProject)
 
 const canWrite = computed(() => {
@@ -253,12 +250,6 @@ onMounted(async () => {
 })
 
 const canDragTasks = computed(() => canWrite.value || isSavedFilter(project.value))
-
-const isTouchDevice = ref(false)
-if (typeof window !== 'undefined') {
-	isTouchDevice.value = !window.matchMedia('(hover: hover) and (pointer: fine)').matches
-}
-const dragHandle = computed(() => isTouchDevice.value ? '.handle' : undefined)
 
 const addTaskRef = ref<typeof AddTask | null>(null)
 const addFieldsRef = ref<InstanceType<typeof InlineQuickAddFields> | null>(null)
@@ -329,88 +320,63 @@ function updateTasks(updatedTask: ITask) {
 	}
 }
 
-function handleDragStart(e: { item: HTMLElement }) {
-	drag.value = true
-	const taskId = parseInt(e.item.dataset.taskId ?? '', 10)
-	const task = tasks.value.find(t => t.id === taskId)
+async function handleTreeDrop() {
+	const {startInfo, dragNode} = dragContext
+	if (!startInfo || !dragNode) return
 
-	if (task) {
-		taskStore.setDraggedTask(task)
-		startNestDetection(taskId)
-	}
-}
+	const task = dragNode.data as ITask
+	const oldParentStat = startInfo.parent
+	const newParentStat = dragNode.parent
 
-function onDragMove() {
-	if (nestTargetTaskId.value !== null) return false
-}
+	const oldParent = oldParentStat ? (oldParentStat.data as ITask) : undefined
+	const newParent = newParentStat ? (newParentStat.data as ITask) : undefined
 
-async function saveTaskPosition(e: { originalEvent?: MouseEvent, to: HTMLElement, from: HTMLElement, newIndex: number, item?: HTMLElement }) {
-	drag.value = false
-	const {nestTargetId} = endNestDetection()
-
-	// If dropped onto a task, create a subtask relation instead of reordering
-	if (nestTargetId !== null) {
-		const draggedTaskId = parseInt(e.item?.dataset?.taskId ?? '', 10)
-		const draggedTask = allTasks.value.find(t => t.id === draggedTaskId)
-		if (draggedTask && nestTargetId !== draggedTaskId) {
-			await nestTaskAsSubtask(draggedTask, nestTargetId)
-		}
-		return
-	}
-
-	// Check if dropped on a sidebar project
-	const {moved} = await handleTaskDropToProject(e, (task) => {
-		tasks.value = tasks.value.filter(t => t.id !== task.id)
-	})
-
-	if (moved) {
-		return
-	}
-
-	// If dropped outside this list
-	if (e.to !== e.from) {
-		return
-	}
-
-	const task = tasks.value[e.newIndex]
-	const taskBefore = tasks.value[e.newIndex - 1] ?? null
-	const taskAfter = tasks.value[e.newIndex + 1] ?? null
-
-	const position = calculateItemPosition(taskBefore !== null ? taskBefore.position : null, taskAfter !== null ? taskAfter.position : null)
-
-	await taskPositionService.value.update(new TaskPositionModel({
-		position,
-		projectViewId: props.viewId,
-		taskId: task.id,
-	}))
-	tasks.value[e.newIndex] = {
-		...task,
-		position,
-	}
-}
-
-async function nestTaskAsSubtask(childTask: ITask, parentTaskId: number) {
-	const parentTask = allTasks.value.find(t => t.id === parentTaskId)
-	if (!parentTask) return
-
-	// Prevent nesting if any relation already exists between these tasks
-	for (const rel of Object.values(parentTask.relatedTasks ?? {})) {
-		if ((rel as ITask[])?.some((t: ITask) => t.id === childTask.id)) return
-	}
-	for (const rel of Object.values(childTask.relatedTasks ?? {})) {
-		if ((rel as ITask[])?.some((t: ITask) => t.id === parentTaskId)) return
-	}
+	const wasChild = !!oldParent
+	const isNowChild = !!newParent
+	const parentChanged = wasChild !== isNowChild || oldParent?.id !== newParent?.id
 
 	try {
-		await taskRelationService.create(new TaskRelationModel({
-			taskId: parentTaskId,
-			otherTaskId: childTask.id,
-			relationKind: RELATION_KIND.SUBTASK,
-		}))
+		// Remove old relation if it was a subtask and parent changed
+		if (wasChild && parentChanged) {
+			await taskRelationService.delete(new TaskRelationModel({
+				taskId: oldParent!.id,
+				otherTaskId: task.id,
+				relationKind: RELATION_KIND.SUBTASK,
+			}))
+		}
+
+		// Create new relation if it's now a subtask and parent changed
+		if (isNowChild && parentChanged) {
+			await taskRelationService.create(new TaskRelationModel({
+				taskId: newParent!.id,
+				otherTaskId: task.id,
+				relationKind: RELATION_KIND.SUBTASK,
+			}))
+		}
+
+		// Handle position update for root-level reorder (root→root, no parent change)
+		if (!isNowChild && !parentChanged) {
+			const rootNodes = treeData.value
+			const idx = rootNodes.findIndex(n => n.id === task.id)
+			const taskBefore = idx > 0 ? rootNodes[idx - 1] : null
+			const taskAfter = idx < rootNodes.length - 1 ? rootNodes[idx + 1] : null
+
+			const position = calculateItemPosition(
+				taskBefore !== null ? taskBefore.position : null,
+				taskAfter !== null ? taskAfter.position : null,
+			)
+
+			await taskPositionService.value.update(new TaskPositionModel({
+				position,
+				projectViewId: props.viewId,
+				taskId: task.id,
+			}))
+		}
 
 		await loadTasks()
 	} catch (e: unknown) {
 		error(e)
+		await loadTasks() // revert on error
 	}
 }
 
@@ -510,31 +476,6 @@ onBeforeUnmount(() => {
 			background: none;
 		}
 	}
-}
-
-.task-ghost {
-	height: 3px !important;
-	min-height: 0 !important;
-	padding: 0 !important;
-	margin: 2px 0;
-	overflow: hidden;
-	background: var(--primary);
-	border: none;
-	border-radius: 2px;
-	opacity: 1;
-
-	* {
-		display: none;
-	}
-}
-
-.is-nesting .task-ghost {
-	display: none !important;
-}
-
-.task-fallback {
-	opacity: .6;
-	box-shadow: var(--shadow-md);
 }
 
 .list-view__add-card {
