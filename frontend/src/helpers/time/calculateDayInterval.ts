@@ -20,6 +20,10 @@ export function calculateDayInterval(dateString: string, currentDay = (new Date(
 			return 2
 		case 'laterNextWeek':
 			return calculateDayInterval('laterThisWeek', currentDay) + 7
+		case 'thisFriday':
+			return ((5 - currentDay) % 7 + 7) % 7
+		case 'nextFriday':
+			return ((5 - currentDay) % 7 + 7) % 7 + 7
 		case 'nextWeek':
 			return 7
 		default:

@@ -22,21 +22,34 @@
 
 		<template #default>
 			<div
+				ref="taskListRef"
 				:class="{ 'is-loading': loading }"
-				class="loader-container is-max-width-desktop list-view"
+				class="loader-container list-view"
 			>
 				<Card
 					:padding="false"
 					:has-content="false"
 					class="has-overflow"
 				>
-					<AddTask
+					<div
 						v-if="!project?.isArchived && canWrite"
-						ref="addTaskRef"
-						class="list-view__add-task d-print-none"
-						:default-position="firstNewPosition"
-						@taskAdded="updateTaskList"
-					/>
+						class="list-view__add-card d-print-none"
+					>
+						<AddTask
+							ref="addTaskRef"
+							class="list-view__add-task"
+							:default-position="firstNewPosition"
+							@taskAdded="onTaskAdded"
+						/>
+						<div class="list-view__add-fields">
+							<InlineQuickAddFields
+								ref="addFieldsRef"
+								:project-id="projectId"
+								:disabled="false"
+								variant="inline"
+							/>
+						</div>
+					</div>
 
 					<Nothing v-if="ctaVisible && tasks.length === 0 && !loading">
 						{{ $t('project.list.empty') }}
@@ -70,14 +83,16 @@
 						@start="handleDragStart"
 						@end="saveTaskPosition"
 					>
-						<template #item="{element: t, index}">
+						<template #item="{element: task, index}">
 							<SingleTaskInProject
 								:ref="(el) => setTaskRef(el, index)"
 								:show-list-color="false"
 								:can-mark-as-done="canWrite || isPseudoProject"
-								:the-task="t"
+								:the-task="task"
 								:all-tasks="allTasks"
+								:is-nest-target="nestTargetTaskId === task.id"
 								@taskUpdated="updateTasks"
+								@relationChanged="loadTasks"
 							>
 								<span
 									v-if="canDragTasks && isPositionSorting"
@@ -108,6 +123,7 @@ import ProjectWrapper from '@/components/project/ProjectWrapper.vue'
 import ButtonLink from '@/components/misc/ButtonLink.vue'
 import AddTask from '@/components/tasks/AddTask.vue'
 import SingleTaskInProject from '@/components/tasks/partials/SingleTaskInProject.vue'
+import InlineQuickAddFields from '@/components/project/views/InlineQuickAddFields.vue'
 import FilterPopup from '@/components/project/partials/FilterPopup.vue'
 import Nothing from '@/components/misc/Nothing.vue'
 import Pagination from '@/components/misc/Pagination.vue'
@@ -115,6 +131,7 @@ import SortPopup from '@/components/project/partials/SortPopup.vue'
 
 import {useTaskList} from '@/composables/useTaskList'
 import {useTaskDragToProject} from '@/composables/useTaskDragToProject'
+import {useTaskDragNesting} from '@/composables/useTaskDragNesting'
 import {shouldShowTaskInListView} from '@/composables/useTaskListFiltering'
 import {PERMISSIONS as Permissions} from '@/constants/permissions'
 import {calculateItemPosition} from '@/helpers/calculateItemPosition'
@@ -128,12 +145,19 @@ import type {IProject} from '@/modelTypes/IProject'
 import type {IProjectView} from '@/modelTypes/IProjectView'
 import TaskPositionService from '@/services/taskPosition'
 import TaskPositionModel from '@/models/taskPosition'
+import TaskRelationService from '@/services/taskRelation'
+import TaskRelationModel from '@/models/taskRelation'
+import {RELATION_KIND} from '@/types/IRelationKind'
+import {success, error} from '@/message'
+import {useI18n} from 'vue-i18n'
 
 const props = defineProps<{
         isLoadingProject: boolean,
         projectId: IProject['id'],
         viewId: IProjectView['id'],
 }>()
+
+const {t} = useI18n({useScope: 'global'})
 
 const projectId = toRef(props, 'projectId')
 
@@ -142,6 +166,19 @@ defineOptions({name: 'List'})
 const ctaVisible = ref(false)
 
 const drag = ref(false)
+
+const taskListRef = ref<HTMLElement | null>(null)
+
+function canNestInto(draggedId: number, targetId: number): boolean {
+	const dragged = allTasks.value.find(t => t.id === draggedId)
+	const target = allTasks.value.find(t => t.id === targetId)
+	if (!dragged || !target) return false
+	if (target.relatedTasks?.subtask?.some(s => s.id === draggedId)) return false
+	if (dragged.relatedTasks?.parenttask?.some(p => p.id === targetId)) return false
+	return true
+}
+
+const {nestTargetTaskId, startDrag: startNestDetection, endDrag: endNestDetection} = useTaskDragNesting(taskListRef, canNestInto)
 
 const {
 	tasks: allTasks,
@@ -161,6 +198,7 @@ const {
 )
 
 const taskPositionService = ref(new TaskPositionService())
+const taskRelationService = new TaskRelationService()
 
 // Saved filter composable for accessing filter data
 const _savedFilter = useSavedFilter(() => isSavedFilter({id: projectId.value}) ? projectId.value : undefined).filter
@@ -209,9 +247,43 @@ if (typeof window !== 'undefined') {
 const dragHandle = computed(() => isTouchDevice.value ? '.handle' : undefined)
 
 const addTaskRef = ref<typeof AddTask | null>(null)
+const addFieldsRef = ref<InstanceType<typeof InlineQuickAddFields> | null>(null)
 
 function focusNewTaskInput() {
 	addTaskRef.value?.focusTaskInput()
+}
+
+async function onTaskAdded(task: ITask) {
+	const fieldValues = addFieldsRef.value?.getFieldValues()
+	if (fieldValues) {
+		const updates: Partial<ITask> = {}
+		if (fieldValues.dueDate) updates.dueDate = fieldValues.dueDate
+		if (fieldValues.startDate) updates.startDate = fieldValues.startDate
+		if (fieldValues.endDate) updates.endDate = fieldValues.endDate
+		if (fieldValues.priority) updates.priority = fieldValues.priority
+		if (fieldValues.hexColor) updates.hexColor = fieldValues.hexColor
+		if (fieldValues.percentDone) updates.percentDone = fieldValues.percentDone / 100
+		if (fieldValues.reminders.length > 0) updates.reminders = fieldValues.reminders
+
+		if (Object.keys(updates).length > 0) {
+			task = await taskStore.update({...task, ...updates})
+		}
+
+		await Promise.all([
+			...fieldValues.assignees.map(user => taskStore.addAssignee({user, taskId: task.id})),
+			...fieldValues.labels.map(label => taskStore.addLabel({label, taskId: task.id})),
+		])
+
+		task = {
+			...task,
+			assignees: fieldValues.assignees,
+			labels: fieldValues.labels,
+		}
+
+		addFieldsRef.value.reset()
+	}
+
+	updateTaskList(task)
 }
 
 function updateTaskList(task: ITask) {
@@ -250,11 +322,23 @@ function handleDragStart(e: { item: HTMLElement }) {
 
 	if (task) {
 		taskStore.setDraggedTask(task)
+		startNestDetection(taskId)
 	}
 }
 
-async function saveTaskPosition(e: { originalEvent?: MouseEvent, to: HTMLElement, from: HTMLElement, newIndex: number }) {
+async function saveTaskPosition(e: { originalEvent?: MouseEvent, to: HTMLElement, from: HTMLElement, newIndex: number, item?: HTMLElement }) {
 	drag.value = false
+	const {nestTargetId} = endNestDetection()
+
+	// If dropped onto a task, create a subtask relation instead of reordering
+	if (nestTargetId !== null) {
+		const draggedTaskId = parseInt(e.item?.dataset?.taskId ?? '', 10)
+		const draggedTask = allTasks.value.find(t => t.id === draggedTaskId)
+		if (draggedTask && nestTargetId !== draggedTaskId) {
+			await nestTaskAsSubtask(draggedTask, nestTargetId)
+		}
+		return
+	}
 
 	// Check if dropped on a sidebar project
 	const {moved} = await handleTaskDropToProject(e, (task) => {
@@ -284,6 +368,43 @@ async function saveTaskPosition(e: { originalEvent?: MouseEvent, to: HTMLElement
 	tasks.value[e.newIndex] = {
 		...task,
 		position,
+	}
+}
+
+async function nestTaskAsSubtask(childTask: ITask, parentTaskId: number) {
+	const parentTask = allTasks.value.find(t => t.id === parentTaskId)
+	if (!parentTask) return
+
+	// Prevent nesting a task that's already a subtask of this parent
+	if (parentTask.relatedTasks?.subtask?.some(s => s.id === childTask.id)) return
+
+	// Prevent nesting a task that already has this parent
+	if (childTask.relatedTasks?.parenttask?.some(p => p.id === parentTaskId)) return
+
+	try {
+		await taskRelationService.create(new TaskRelationModel({
+			taskId: parentTaskId,
+			otherTaskId: childTask.id,
+			relationKind: RELATION_KIND.SUBTASK,
+		}))
+
+		// Update parent's relatedTasks locally
+		if (!parentTask.relatedTasks) parentTask.relatedTasks = {}
+		if (!parentTask.relatedTasks.subtask) parentTask.relatedTasks.subtask = []
+		parentTask.relatedTasks.subtask.push(childTask)
+
+		// Update child's relatedTasks locally so shouldShowTaskInListView hides it
+		if (!childTask.relatedTasks) childTask.relatedTasks = {}
+		if (!childTask.relatedTasks.parenttask) childTask.relatedTasks.parenttask = []
+		childTask.relatedTasks.parenttask.push(parentTask)
+
+		// Re-filter the visible tasks list (child will be hidden from flat list)
+		const isFiltered = isSavedFilter({id: projectId.value})
+		tasks.value = ([...allTasks.value]).filter(t => shouldShowTaskInListView(t, allTasks.value, isFiltered))
+
+		success({message: t('task.detail.updateSuccess')})
+	} catch (e: unknown) {
+		error(e)
 	}
 }
 
@@ -370,6 +491,19 @@ onBeforeUnmount(() => {
 
 .tasks {
 	padding: .5rem;
+	display: flex;
+	flex-direction: column;
+	gap: .5rem;
+
+	:deep(.single-task) {
+		box-shadow: var(--shadow-xs);
+		border-radius: $radius;
+		background: var(--white);
+
+		&.has-custom-background-color {
+			background: none;
+		}
+	}
 }
 
 .task-ghost {
@@ -382,8 +516,20 @@ onBeforeUnmount(() => {
 	}
 }
 
+.list-view__add-card {
+	box-shadow: var(--shadow-xs);
+	border-radius: $radius;
+	background: var(--white);
+	padding: .75rem;
+	margin: .5rem;
+}
+
 .list-view__add-task {
-	padding: 1rem 1rem 0;
+	padding: 0;
+}
+
+.list-view__add-fields {
+	padding-block-start: .5rem;
 }
 
 .link-share-view .card {
@@ -419,6 +565,9 @@ onBeforeUnmount(() => {
 
 	:deep(.card) {
 		margin-block-end: 0;
+		background: transparent;
+		box-shadow: none;
+		border: none;
 	}
 }
 </style>

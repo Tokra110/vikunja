@@ -3,8 +3,12 @@
 		class="user"
 		:class="{'is-inline': isInline}"
 	>
-		<span class="avatar-wrapper">
+		<span
+			class="avatar-wrapper"
+			:style="{width: avatarSize + 'px', height: avatarSize + 'px'}"
+		>
 			<img
+				v-if="avatarSrc"
 				v-tooltip="displayName"
 				:height="avatarSize"
 				:src="avatarSrc"

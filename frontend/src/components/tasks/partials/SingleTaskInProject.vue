@@ -5,16 +5,16 @@
 	>
 		<div
 			ref="taskRoot"
-			:class="{'is-loading': taskService.loading}"
+			:class="{'is-loading': taskService.loading, 'has-custom-background-color': getHexColor(task.hexColor), 'has-popup-open': hasPopupOpen, 'is-nest-target': isNestTarget}"
 			class="task loader-container single-task"
+			:style="{'background-color': getHexColor(task.hexColor) || undefined}"
 			tabindex="-1"
-			:data-is-overdue="isOverdue || undefined"
 			@click="openTaskDetail"
 			@keyup.enter="openTaskDetail"
 		>
 			<span
 				v-tooltip="!canMarkAsDone ? $t('task.readOnlyCheckbox') : ''"
-				class="is-inline-flex is-align-items-center"
+				class="task-checkbox"
 			>
 				<FancyCheckbox
 					v-model="task.done"
@@ -25,126 +25,115 @@
 				/>
 			</span>
 
-			<ColorBubble
-				v-if="!showProjectSeparately && projectColor !== '' && currentProject?.id !== task.projectId"
-				:color="projectColor"
-				class="mie-1"
-			/>
-
-			<div
-				:class="{ 'done': task.done, 'show-project': showProject && project}"
-				class="tasktext"
-			>
-				<span class="is-inline-flex is-align-items-center">
-					<RouterLink
-						v-if="showProject && typeof project !== 'undefined'"
-						v-tooltip="$t('task.detail.belongsToProject', {project: project.title})"
-						:to="{ name: 'project.index', params: { projectId: task.projectId } }"
-						class="task-project mie-1"
-						:class="{'mie-2': task.hexColor !== ''}"
-						@click.stop
-					>
-						{{ project.title }}
-					</RouterLink>
-
-					<ColorBubble
-						v-if="task.hexColor !== ''"
-						:color="getHexColor(task.hexColor)"
-						class="mie-1"
-					/>
-	
-					<PriorityLabel
-						:priority="task.priority"
-						:done="task.done"
-						class="pis-2 mie-1"
-					/>
-
-					<TaskGlanceTooltip :task="task">
-						<RouterLink
-							ref="taskLinkRef"
-							:to="taskDetailRoute"
-							class="task-link"
-							tabindex="-1"
-						>
-							{{ task.title }}
-						</RouterLink>
-					</TaskGlanceTooltip>
-				</span>
-
-				<Labels
-					v-if="task.labels.length > 0"
-					class="labels mis-2 mie-1"
-					:labels="task.labels"
-				/>
-
-				<AssigneeList
-					v-if="task.assignees.length > 0"
-					:assignees="task.assignees"
-					:avatar-size="25"
-					class="mis-1"
-					:inline="true"
-				/>
-
-				<Popup
-					v-if="+new Date(task.dueDate) > 0"
-				>
-					<template #trigger="{toggle, isOpen}">
-						<BaseButton
-							v-tooltip="formatDateLong(task.dueDate)"
-							class="dueDate"
-							@click.prevent.stop="toggle()"
-						>	
-							<time
-								:datetime="formatISO(task.dueDate)"
-								class="is-italic"
-								:aria-expanded="isOpen ? 'true' : 'false'"
-							>
-								– {{ $t('task.detail.due', {at: dueDateFormatted}) }}
-							</time>
-						</BaseButton>
-					</template>
-					<template #content="{isOpen}">
-						<DeferTask
-							v-if="isOpen"
-							v-model="task"
-							@update:modelValue="deferTaskUpdate"
-						/>
-					</template>
-				</Popup>
-
-				<span>
-					<span
-						v-if="task.attachments.length > 0"
-						class="project-task-icon"
-					>
-						<Icon icon="paperclip" />
-					</span>
+			<div class="task-content">
+				<div class="task-title-row">
 					<span
 						v-if="!isEditorContentEmpty(task.description)"
-						class="project-task-icon is-mirrored-rtl"
+						class="project-task-icon is-mirrored-rtl task-description-icon"
 					>
 						<Icon icon="align-left" />
 					</span>
-					<span
-						v-if="isRepeating"
-						class="project-task-icon"
-					>
-						<Icon icon="history" />
-					</span>
-					<CommentCount
-						:task="task"
-						class="project-task-icon"
+					<ColorBubble
+						v-if="!showProjectSeparately && projectColor !== '' && currentProject?.id !== task.projectId"
+						:color="projectColor"
+						class="mie-1"
 					/>
-				</span>
 
-				<ChecklistSummary :task="task" />
+					<div
+						:class="{ 'done': task.done, 'show-project': showProject && project}"
+						class="tasktext"
+					>
+						<RouterLink
+							v-if="showProject && typeof project !== 'undefined'"
+							v-tooltip="$t('task.detail.belongsToProject', {project: project.title})"
+							:to="{ name: 'project.index', params: { projectId: task.projectId } }"
+							class="task-project mie-1"
+							:class="{'mie-2': task.hexColor !== ''}"
+							@click.stop
+						>
+							{{ project.title }}
+						</RouterLink>
+
+						<ColorBubble
+							v-if="task.hexColor !== ''"
+							:color="getHexColor(task.hexColor)"
+							class="mie-1"
+						/>
+
+						<TaskGlanceTooltip :task="task">
+							<span
+								v-if="isEditingTitle"
+								ref="titleEditRef"
+								class="task-link task-title-editable"
+								contenteditable="true"
+								@keydown.enter.prevent="saveTitle"
+								@keydown.esc.prevent="cancelEditTitle"
+								@blur="saveTitle"
+								@click.stop
+							>{{ task.title }}</span>
+							<RouterLink
+								v-else
+								ref="taskLinkRef"
+								:to="taskDetailRoute"
+								class="task-link"
+								tabindex="-1"
+							>
+								{{ task.title }}
+							</RouterLink>
+						</TaskGlanceTooltip>
+					</div>
+					<BaseButton
+						v-if="!disabled && !isArchived && !isEditingTitle"
+						class="task-edit-button"
+						@click.stop="startEditTitle"
+					>
+						<Icon icon="pen" />
+					</BaseButton>
+
+					<RelationKindChip
+						v-if="parentRelation && !isEditingTitle"
+						:relation-kind="currentRelationKind"
+						class="task-relation-chip"
+						@click.stop
+						@update:relationKind="changeRelationKind"
+						@remove="removeRelation"
+					/>
+
+					<div
+						v-if="!task.done"
+						class="task-inline-fields"
+					>
+						<InlineQuickAddFields
+							ref="inlineFieldsRef"
+							:task="task"
+							:project-id="task.projectId"
+							variant="inline"
+							:disabled="isArchived || disabled"
+							@taskUpdated="t => { task = t; emit('taskUpdated', t) }"
+						/>
+					</div>
+				</div>
 			</div>
 
-			<ProgressBar
-				v-if="task.percentDone > 0"
-				:value="task.percentDone * 100"
-				is-small
-			/>
+			<span class="task-meta-icons">
+				<span
+					v-if="task.attachments.length > 0"
+					class="project-task-icon"
+				>
+					<Icon icon="paperclip" />
+				</span>
+				<span
+					v-if="isRepeating"
+					class="project-task-icon"
+				>
+					<Icon icon="history" />
+				</span>
+				<CommentCount
+					:task="task"
+					class="project-task-icon"
+				/>
+				<ChecklistSummary :task="task" />
+			</span>
 
 			<ColorBubble
 				v-if="showProjectSeparately && projectColor !== '' && currentProject?.id !== task.projectId"
@@ -180,7 +169,7 @@
 			<slot />
 		</div>
 		<template v-if="typeof task.relatedTasks?.subtask !== 'undefined'">
-			<template v-for="subtask in task.relatedTasks.subtask">
+			<template v-for="subtask in sortedSubtasks">
 				<template v-if="getTaskById(subtask.id)">
 					<single-task-in-project
 						:key="subtask.id"
@@ -188,7 +177,10 @@
 						:disabled="disabled"
 						:can-mark-as-done="canMarkAsDone"
 						:all-tasks="allTasks"
-						class="subtask-nested"
+						:parent-relation="{ parentTaskId: task.id, relationKind: getSubtaskRelationKind(subtask.id) }"
+						:class="getSubtaskClass(subtask.id)"
+						@taskUpdated="t => emit('taskUpdated', t)"
+						@relationChanged="onSubtaskRelationChanged"
 					/>
 				</template>
 			</template>
@@ -197,39 +189,35 @@
 </template>
 
 <script setup lang="ts">
-import {ref, watch, shallowReactive, onMounted, computed} from 'vue'
+import {ref, watch, shallowReactive, computed, nextTick, type ComponentInstance} from 'vue'
 import {useI18n} from 'vue-i18n'
 
 import TaskModel, {getHexColor} from '@/models/task'
 import type {ITask} from '@/modelTypes/ITask'
 
-import PriorityLabel from '@/components/tasks/partials/PriorityLabel.vue'
-import Labels from '@/components/tasks/partials/Labels.vue'
 import TaskGlanceTooltip from '@/components/tasks/partials/TaskGlanceTooltip.vue'
-import DeferTask from '@/components/tasks/partials/DeferTask.vue'
 import ChecklistSummary from '@/components/tasks/partials/ChecklistSummary.vue'
 import CommentCount from '@/components/tasks/partials/CommentCount.vue'
+import InlineQuickAddFields from '@/components/project/views/InlineQuickAddFields.vue'
+import RelationKindChip from '@/components/tasks/partials/RelationKindChip.vue'
 
-import ProgressBar from '@/components/misc/ProgressBar.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import FancyCheckbox from '@/components/input/FancyCheckbox.vue'
 import ColorBubble from '@/components/misc/ColorBubble.vue'
-import Popup from '@/components/misc/Popup.vue'
 
 import TaskService from '@/services/task'
+import TaskRelationService from '@/services/taskRelation'
+import TaskRelationModel from '@/models/taskRelation'
 
-import {formatDisplayDate, formatISO, formatDateLong} from '@/helpers/time/formatDate'
-import {success} from '@/message'
+import {success, error} from '@/message'
+import {RELATION_KIND, type IRelationKind} from '@/types/IRelationKind'
 
 import {useProjectStore} from '@/stores/projects'
 import {useBaseStore} from '@/stores/base'
 import {useTaskStore} from '@/stores/tasks'
-import AssigneeList from '@/components/tasks/partials/AssigneeList.vue'
-import {useIntervalFn} from '@vueuse/core'
 import {playPopSound} from '@/helpers/playPop'
 import {isEditorContentEmpty} from '@/helpers/editorContentEmpty'
 import {TASK_REPEAT_MODES} from '@/types/IRepeatMode'
-import {useGlobalNow} from '@/composables/useGlobalNow'
 
 const props = withDefaults(defineProps<{
 	theTask: ITask,
@@ -238,16 +226,21 @@ const props = withDefaults(defineProps<{
 	disabled?: boolean,
 	canMarkAsDone?: boolean,
 	allTasks?: ITask[],
+	isNestTarget?: boolean,
+	parentRelation?: { parentTaskId: number, relationKind: IRelationKind } | null,
 }>(), {
 	isArchived: false,
 	showProject: false,
 	disabled: false,
 	canMarkAsDone: true,
 	allTasks: () => [],
+	isNestTarget: false,
+	parentRelation: null,
 })
 
 const emit = defineEmits<{
 	'taskUpdated': [task: ITask],
+	'relationChanged': [payload?: { taskId: number, newKind: IRelationKind }],
 }>()
 
 function getTaskById(taskId: number): ITask | undefined {
@@ -256,6 +249,82 @@ function getTaskById(taskId: number): ITask | undefined {
 	}
 
 	return props.allTasks.find(t => t.id === taskId)
+}
+
+const taskRelationService = new TaskRelationService()
+
+const localRelationKinds = ref<Record<number, IRelationKind>>({})
+
+const currentRelationKind = computed<IRelationKind>(() => {
+	return props.parentRelation?.relationKind ?? RELATION_KIND.SUBTASK
+})
+
+function getSubtaskRelationKind(subtaskId: number): IRelationKind {
+	return localRelationKinds.value[subtaskId] ?? RELATION_KIND.SUBTASK
+}
+
+const sortedSubtasks = computed(() => {
+	const subtasks = task.value.relatedTasks?.subtask ?? []
+	return [...subtasks].sort((a, b) => {
+		const aBlocking = getSubtaskRelationKind(a.id) === RELATION_KIND.BLOCKING ? 0 : 1
+		const bBlocking = getSubtaskRelationKind(b.id) === RELATION_KIND.BLOCKING ? 0 : 1
+		return aBlocking - bBlocking
+	})
+})
+
+function getSubtaskClass(subtaskId: number): Record<string, boolean> {
+	const kind = getSubtaskRelationKind(subtaskId)
+	return {
+		'subtask-nested': kind === RELATION_KIND.SUBTASK,
+		'relation-blocking': kind === RELATION_KIND.BLOCKING,
+		'relation-related': kind === RELATION_KIND.RELATED,
+	}
+}
+
+async function changeRelationKind(newKind: IRelationKind) {
+	if (!props.parentRelation) return
+	const oldKind = props.parentRelation.relationKind
+
+	try {
+		await taskRelationService.delete(new TaskRelationModel({
+			taskId: props.parentRelation.parentTaskId,
+			otherTaskId: task.value.id,
+			relationKind: oldKind,
+		}))
+
+		await taskRelationService.create(new TaskRelationModel({
+			taskId: props.parentRelation.parentTaskId,
+			otherTaskId: task.value.id,
+			relationKind: newKind,
+		}))
+
+		emit('relationChanged', {taskId: task.value.id, newKind})
+	} catch (e: unknown) {
+		error(e)
+	}
+}
+
+async function removeRelation() {
+	if (!props.parentRelation) return
+
+	try {
+		await taskRelationService.delete(new TaskRelationModel({
+			taskId: props.parentRelation.parentTaskId,
+			otherTaskId: task.value.id,
+			relationKind: props.parentRelation.relationKind,
+		}))
+
+		emit('relationChanged')
+	} catch (e: unknown) {
+		error(e)
+	}
+}
+
+function onSubtaskRelationChanged(payload?: { taskId: number, newKind: IRelationKind }) {
+	if (payload) {
+		localRelationKinds.value[payload.taskId] = payload.newKind
+	}
+	emit('relationChanged', payload)
 }
 
 const {t} = useI18n({useScope: 'global'})
@@ -299,30 +368,6 @@ const taskDetailRoute = computed(() => ({
 	// state: { backdropView: router.currentRoute.value.fullPath },
 }))
 
-function updateDueDate() {
-	if (!task.value.dueDate) {
-		return
-	}
-
-	dueDateFormatted.value = formatDisplayDate(task.value.dueDate)
-}
-
-const dueDateFormatted = ref('')
-useIntervalFn(updateDueDate, 60_000, {
-	immediateCallback: true,
-})
-onMounted(updateDueDate)
-
-watch(() => task.value.dueDate, updateDueDate)
-
-const {now} = useGlobalNow()
-const isOverdue = computed(() => (
-	!task.value.done &&
-	task.value.dueDate !== null &&
-	task.value.dueDate.getTime() > 0 &&
-	task.value.dueDate.getTime() <= now.value.getTime()
-))
-
 let oldTask
 
 async function markAsDone(checked: boolean, wasReverted: boolean = false) {
@@ -330,8 +375,6 @@ async function markAsDone(checked: boolean, wasReverted: boolean = false) {
 		oldTask = {...task.value}
 		const newTask = await taskStore.update(task.value)
 		task.value = newTask
-
-		updateDueDate()
 
 		if (wasReverted) {
 			return
@@ -375,6 +418,44 @@ async function toggleFavorite() {
 
 const taskRoot = ref<HTMLElement | null>(null)
 const taskLinkRef = ref<HTMLElement | null>(null)
+const titleEditRef = ref<HTMLElement | null>(null)
+const inlineFieldsRef = ref<ComponentInstance<typeof InlineQuickAddFields> | null>(null)
+const hasPopupOpen = computed(() => inlineFieldsRef.value?.isPopupOpen ?? false)
+
+const isEditingTitle = ref(false)
+
+async function startEditTitle() {
+	isEditingTitle.value = true
+	await nextTick()
+	const el = titleEditRef.value
+	if (!el) return
+	el.focus()
+	const range = document.createRange()
+	range.selectNodeContents(el)
+	const sel = window.getSelection()
+	sel?.removeAllRanges()
+	sel?.addRange(range)
+}
+
+async function saveTitle() {
+	if (!isEditingTitle.value) return
+	const trimmed = titleEditRef.value?.textContent?.trim() ?? ''
+	if (trimmed === '' || trimmed === task.value.title) {
+		isEditingTitle.value = false
+		return
+	}
+	task.value.title = trimmed
+	isEditingTitle.value = false
+	task.value = await taskStore.update({...task.value, title: trimmed})
+	emit('taskUpdated', task.value)
+}
+
+function cancelEditTitle() {
+	if (titleEditRef.value) {
+		titleEditRef.value.textContent = task.value.title
+	}
+	isEditingTitle.value = false
+}
 
 function hasTextSelected() {
 	const isTextSelected = window.getSelection().toString()
@@ -382,8 +463,9 @@ function hasTextSelected() {
 }
 
 function openTaskDetail(event: MouseEvent | KeyboardEvent) {
+	if (isEditingTitle.value) return
 	if (event.target instanceof HTMLElement) {
-		const isInteractiveElement = event.target.closest('a, button, label, input[type="checkbox"], .favorite, [role="button"]')
+		const isInteractiveElement = event.target.closest('a, button, label, input, [contenteditable], .favorite, [role="button"]')
 		if (isInteractiveElement || hasTextSelected()) {
 			return
 		}
@@ -401,13 +483,17 @@ defineExpose({
 <style lang="scss" scoped>
 .task {
 	display: flex;
-	flex-wrap: wrap;
-	padding: .4rem;
+	padding: .5rem .4rem;
 	transition: background-color $transition;
 	align-items: center;
 	cursor: pointer;
 	border-radius: $radius;
 	border: 2px solid transparent;
+
+	&.is-nest-target {
+		border: 2px solid var(--primary);
+		background-color: hsla(var(--primary-hsl), 0.05);
+	}
 
 	&:hover {
 		background-color: var(--grey-100);
@@ -431,37 +517,111 @@ defineExpose({
 		}
 	}
 
+	.task-checkbox {
+		display: inline-flex;
+		align-items: center;
+		align-self: center;
+		padding-inline-end: .75rem;
+	}
+
+	.task-content {
+		flex: 1 1 0;
+		min-inline-size: 0;
+	}
+
+	.task-title-row {
+		display: flex;
+		align-items: center;
+		gap: .25rem;
+	}
+
 	.tasktext,
 	&.tasktext {
 		text-overflow: ellipsis;
 		word-wrap: break-word;
 		word-break: break-word;
-		display: -webkit-box;
-		hyphens: auto;
-		-webkit-line-clamp: 4;
-		-webkit-box-orient: vertical;
 		overflow: hidden;
-
-		flex: 1 0 50%;
-
+		white-space: nowrap;
+		flex: 0 1 auto;
+		min-inline-size: 0;
 	}
 
-	.dueDate {
-		display: inline-block;
-		margin-inline-start: 5px;
+	.task-edit-button {
+		opacity: 0;
+		color: var(--grey-400);
+		flex-shrink: 0;
+		padding: .15rem .25rem;
+		font-size: .8rem;
+		transition: opacity $transition, color $transition;
+		border-radius: $radius;
 
-		&:focus-visible {
-			box-shadow: none;
-
-			time {
-				box-shadow: 0 0 0 1px hsla(var(--primary-hsl), 0.5);
-				border-radius: 3px;
-			}
+		&:hover {
+			color: var(--primary);
 		}
 	}
 
-	&[data-is-overdue] .dueDate {
-		color: var(--danger);
+	&:hover .task-edit-button,
+	&.has-popup-open .task-edit-button {
+		opacity: 1;
+	}
+
+	.task-relation-chip {
+		opacity: 0;
+		transition: opacity $transition;
+		flex-shrink: 0;
+	}
+
+	&:hover .task-relation-chip,
+	&.has-popup-open .task-relation-chip {
+		opacity: 1;
+	}
+
+	.task-title-editable {
+		cursor: text;
+		outline: none;
+		border-radius: $radius;
+		box-decoration-break: clone;
+
+		&:focus {
+			box-shadow: 0 0 0 2px hsla(var(--primary-hsl), 0.3);
+		}
+	}
+
+	.task-meta-icons {
+		display: inline-flex;
+		align-items: center;
+		flex-shrink: 0;
+		gap: .5rem;
+		margin-inline-start: 1rem;
+	}
+
+	.task-inline-fields {
+		display: inline-flex;
+		align-items: center;
+		margin-inline-start: .5rem;
+		padding-inline-start: .5rem;
+		border-inline-start: 1px solid var(--grey-200);
+		flex-shrink: 0;
+
+		:deep(.inline-quick-add-chip:not(.is-set)) {
+			opacity: 0;
+			clip-path: inset(0 100% 0 0);
+			pointer-events: none;
+			transition: opacity .2s ease, clip-path .2s ease;
+		}
+	}
+
+	&:hover .task-inline-fields :deep(.inline-quick-add-chip:not(.is-set)),
+	&.has-popup-open .task-inline-fields :deep(.inline-quick-add-chip:not(.is-set)) {
+		opacity: .5;
+		clip-path: inset(0 0 0 0);
+		pointer-events: auto;
+	}
+
+	.task-description-icon {
+		margin-inline-start: 0;
+		margin-inline-end: .25rem;
+		flex-shrink: 0;
 	}
 
 	.task-project {
@@ -503,6 +663,8 @@ defineExpose({
 		inline-size: 27px;
 		transition: opacity $transition, color $transition;
 		border-radius: $radius;
+		flex-shrink: 0;
+		margin-inline-start: 1rem;
 
 		&:hover {
 			color: var(--warning);
@@ -597,16 +759,30 @@ defineExpose({
 	margin-inline-start: 1.75rem;
 }
 
-:deep(.popup) {
-	border-radius: $radius;
-	background-color: var(--white);
-	box-shadow: var(--shadow-lg);
-	color: var(--text);
-	inset-block-start: unset;
-	
-	&.is-open {
-		padding: 1rem;
-		border: 1px solid var(--grey-200);
+.relation-blocking {
+	margin-inline-start: 0;
+	border-inline-start: 3px solid var(--danger);
+	padding-inline-start: calc(1.75rem - 3px);
+}
+
+.relation-related {
+	margin-inline-start: 0;
+
+	:deep(.task) {
+		border-radius: 0;
+		border-block-end: 1px solid var(--grey-100);
+	}
+
+	&:first-child :deep(.task) {
+		border-start-start-radius: $radius;
+		border-start-end-radius: $radius;
+	}
+
+	&:last-child :deep(.task) {
+		border-end-start-radius: $radius;
+		border-end-end-radius: $radius;
+		border-block-end: none;
 	}
 }
+
 </style>
