@@ -169,7 +169,7 @@
 			<slot />
 		</div>
 		<template v-if="typeof task.relatedTasks?.subtask !== 'undefined'">
-			<template v-for="subtask in task.relatedTasks.subtask">
+			<template v-for="subtask in sortedSubtasks">
 				<template v-if="getTaskById(subtask.id)">
 					<single-task-in-project
 						:key="subtask.id"
@@ -180,7 +180,7 @@
 						:parent-relation="{ parentTaskId: task.id, relationKind: getSubtaskRelationKind(subtask.id) }"
 						:class="getSubtaskClass(subtask.id)"
 						@taskUpdated="t => emit('taskUpdated', t)"
-						@relationChanged="emit('relationChanged')"
+						@relationChanged="onSubtaskRelationChanged"
 					/>
 				</template>
 			</template>
@@ -240,7 +240,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
 	'taskUpdated': [task: ITask],
-	'relationChanged': [],
+	'relationChanged': [payload?: { taskId: number, newKind: IRelationKind }],
 }>()
 
 function getTaskById(taskId: number): ITask | undefined {
@@ -262,6 +262,15 @@ const currentRelationKind = computed<IRelationKind>(() => {
 function getSubtaskRelationKind(subtaskId: number): IRelationKind {
 	return localRelationKinds.value[subtaskId] ?? RELATION_KIND.SUBTASK
 }
+
+const sortedSubtasks = computed(() => {
+	const subtasks = task.value.relatedTasks?.subtask ?? []
+	return [...subtasks].sort((a, b) => {
+		const aBlocking = getSubtaskRelationKind(a.id) === RELATION_KIND.BLOCKING ? 0 : 1
+		const bBlocking = getSubtaskRelationKind(b.id) === RELATION_KIND.BLOCKING ? 0 : 1
+		return aBlocking - bBlocking
+	})
+})
 
 function getSubtaskClass(subtaskId: number): Record<string, boolean> {
 	const kind = getSubtaskRelationKind(subtaskId)
@@ -289,7 +298,7 @@ async function changeRelationKind(newKind: IRelationKind) {
 			relationKind: newKind,
 		}))
 
-		emit('relationChanged')
+		emit('relationChanged', {taskId: task.value.id, newKind})
 	} catch (e: unknown) {
 		error(e)
 	}
@@ -309,6 +318,13 @@ async function removeRelation() {
 	} catch (e: unknown) {
 		error(e)
 	}
+}
+
+function onSubtaskRelationChanged(payload?: { taskId: number, newKind: IRelationKind }) {
+	if (payload) {
+		localRelationKinds.value[payload.taskId] = payload.newKind
+	}
+	emit('relationChanged', payload)
 }
 
 const {t} = useI18n({useScope: 'global'})
@@ -741,6 +757,32 @@ defineExpose({
 
 .subtask-nested {
 	margin-inline-start: 1.75rem;
+}
+
+.relation-blocking {
+	margin-inline-start: 0;
+	border-inline-start: 3px solid var(--danger);
+	padding-inline-start: calc(1.75rem - 3px);
+}
+
+.relation-related {
+	margin-inline-start: 0;
+
+	:deep(.task) {
+		border-radius: 0;
+		border-block-end: 1px solid var(--grey-100);
+	}
+
+	&:first-child :deep(.task) {
+		border-start-start-radius: $radius;
+		border-start-end-radius: $radius;
+	}
+
+	&:last-child :deep(.task) {
+		border-end-start-radius: $radius;
+		border-end-end-radius: $radius;
+		border-block-end: none;
+	}
 }
 
 </style>
