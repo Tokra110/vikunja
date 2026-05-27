@@ -83,14 +83,14 @@
 						@start="handleDragStart"
 						@end="saveTaskPosition"
 					>
-						<template #item="{element: t, index}">
+						<template #item="{element: task, index}">
 							<SingleTaskInProject
 								:ref="(el) => setTaskRef(el, index)"
 								:show-list-color="false"
 								:can-mark-as-done="canWrite || isPseudoProject"
-								:the-task="t"
+								:the-task="task"
 								:all-tasks="allTasks"
-								:is-nest-target="nestTargetTaskId === t.id"
+								:is-nest-target="nestTargetTaskId === task.id"
 								@taskUpdated="updateTasks"
 							>
 								<span
@@ -144,12 +144,19 @@ import type {IProject} from '@/modelTypes/IProject'
 import type {IProjectView} from '@/modelTypes/IProjectView'
 import TaskPositionService from '@/services/taskPosition'
 import TaskPositionModel from '@/models/taskPosition'
+import TaskRelationService from '@/services/taskRelation'
+import TaskRelationModel from '@/models/taskRelation'
+import {RELATION_KIND} from '@/types/IRelationKind'
+import {success, error} from '@/message'
+import {useI18n} from 'vue-i18n'
 
 const props = defineProps<{
         isLoadingProject: boolean,
         projectId: IProject['id'],
         viewId: IProjectView['id'],
 }>()
+
+const {t} = useI18n({useScope: 'global'})
 
 const projectId = toRef(props, 'projectId')
 
@@ -180,6 +187,7 @@ const {
 )
 
 const taskPositionService = ref(new TaskPositionService())
+const taskRelationService = new TaskRelationService()
 
 // Saved filter composable for accessing filter data
 const _savedFilter = useSavedFilter(() => isSavedFilter({id: projectId.value}) ? projectId.value : undefined).filter
@@ -307,9 +315,19 @@ function handleDragStart(e: { item: HTMLElement }) {
 	}
 }
 
-async function saveTaskPosition(e: { originalEvent?: MouseEvent, to: HTMLElement, from: HTMLElement, newIndex: number }) {
+async function saveTaskPosition(e: { originalEvent?: MouseEvent, to: HTMLElement, from: HTMLElement, newIndex: number, item?: HTMLElement }) {
 	drag.value = false
-	const {nestTargetId: _nestTargetId} = endNestDetection()
+	const {nestTargetId} = endNestDetection()
+
+	// If dropped onto a task, create a subtask relation instead of reordering
+	if (nestTargetId !== null) {
+		const draggedTaskId = parseInt(e.item?.dataset?.taskId ?? '', 10)
+		const draggedTask = allTasks.value.find(t => t.id === draggedTaskId)
+		if (draggedTask && nestTargetId !== draggedTaskId) {
+			await nestTaskAsSubtask(draggedTask, nestTargetId)
+		}
+		return
+	}
 
 	// Check if dropped on a sidebar project
 	const {moved} = await handleTaskDropToProject(e, (task) => {
@@ -339,6 +357,40 @@ async function saveTaskPosition(e: { originalEvent?: MouseEvent, to: HTMLElement
 	tasks.value[e.newIndex] = {
 		...task,
 		position,
+	}
+}
+
+async function nestTaskAsSubtask(childTask: ITask, parentTaskId: number) {
+	const parentTask = allTasks.value.find(t => t.id === parentTaskId)
+	if (!parentTask) return
+
+	// Prevent nesting a task that's already a subtask of this parent
+	if (parentTask.relatedTasks?.subtask?.some(s => s.id === childTask.id)) return
+
+	try {
+		await taskRelationService.create(new TaskRelationModel({
+			taskId: parentTaskId,
+			otherTaskId: childTask.id,
+			relationKind: RELATION_KIND.SUBTASK,
+		}))
+
+		// Update parent's relatedTasks locally
+		if (!parentTask.relatedTasks) parentTask.relatedTasks = {}
+		if (!parentTask.relatedTasks.subtask) parentTask.relatedTasks.subtask = []
+		parentTask.relatedTasks.subtask.push(childTask)
+
+		// Update child's relatedTasks locally so shouldShowTaskInListView hides it
+		if (!childTask.relatedTasks) childTask.relatedTasks = {}
+		if (!childTask.relatedTasks.parenttask) childTask.relatedTasks.parenttask = []
+		childTask.relatedTasks.parenttask.push(parentTask)
+
+		// Re-filter the visible tasks list (child will be hidden from flat list)
+		const isFiltered = isSavedFilter({id: projectId.value})
+		tasks.value = ([...allTasks.value]).filter(t => shouldShowTaskInListView(t, allTasks.value, isFiltered))
+
+		success({message: t('task.detail.updateSuccess')})
+	} catch (e: unknown) {
+		error(e)
 	}
 }
 
