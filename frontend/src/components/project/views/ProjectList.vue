@@ -72,8 +72,9 @@
 						:update-behavior="'modify'"
 						:default-open="true"
 						node-key="id"
-						class="tasks"
-						@afterDrop="handleTreeDrop"
+						trigger-class="task-drag-trigger"
+						class="tasks task-tree"
+						@after-drop="handleTreeDrop"
 					>
 						<template #default="{node, stat}">
 							<SingleTaskInProject
@@ -84,14 +85,7 @@
 								:all-tasks="allTasks"
 								@taskUpdated="updateTasks"
 								@relationChanged="loadTasks"
-							>
-								<span
-									v-if="canDragTasks && isPositionSorting"
-									class="icon handle"
-								>
-									<Icon icon="grip-lines" />
-								</span>
-							</SingleTaskInProject>
+							/>
 						</template>
 					</Draggable>
 
@@ -530,6 +524,21 @@ onBeforeUnmount(() => {
 		background: transparent;
 		box-shadow: none;
 		border: none;
+	}
+}
+
+// he-tree drag overrides
+.task-tree {
+	:deep(.he-tree-drag-placeholder) {
+		height: 3px !important;
+		background: var(--primary);
+		border: none;
+		border-radius: 2px;
+		margin: 4px 0;
+	}
+
+	:deep(.tree-node) {
+		padding: 0;
 	}
 }
 </style>

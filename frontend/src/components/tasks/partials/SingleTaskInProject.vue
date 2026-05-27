@@ -25,7 +25,7 @@
 				/>
 			</span>
 
-			<div class="task-content">
+			<div class="task-content task-drag-trigger">
 				<div class="task-title-row">
 					<span
 						v-if="!isEditorContentEmpty(task.description)"
