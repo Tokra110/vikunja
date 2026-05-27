@@ -90,6 +90,15 @@
 						<Icon icon="pen" />
 					</BaseButton>
 
+					<RelationKindChip
+						v-if="parentRelation && !isEditingTitle"
+						:relation-kind="currentRelationKind"
+						class="task-relation-chip"
+						@click.stop
+						@update:relationKind="changeRelationKind"
+						@remove="removeRelation"
+					/>
+
 					<div
 						v-if="!task.done"
 						class="task-inline-fields"
@@ -168,7 +177,10 @@
 						:disabled="disabled"
 						:can-mark-as-done="canMarkAsDone"
 						:all-tasks="allTasks"
-						class="subtask-nested"
+						:parent-relation="{ parentTaskId: task.id, relationKind: getSubtaskRelationKind(subtask.id) }"
+						:class="getSubtaskClass(subtask.id)"
+						@taskUpdated="t => emit('taskUpdated', t)"
+						@relationChanged="emit('relationChanged')"
 					/>
 				</template>
 			</template>
@@ -187,14 +199,18 @@ import TaskGlanceTooltip from '@/components/tasks/partials/TaskGlanceTooltip.vue
 import ChecklistSummary from '@/components/tasks/partials/ChecklistSummary.vue'
 import CommentCount from '@/components/tasks/partials/CommentCount.vue'
 import InlineQuickAddFields from '@/components/project/views/InlineQuickAddFields.vue'
+import RelationKindChip from '@/components/tasks/partials/RelationKindChip.vue'
 
 import BaseButton from '@/components/base/BaseButton.vue'
 import FancyCheckbox from '@/components/input/FancyCheckbox.vue'
 import ColorBubble from '@/components/misc/ColorBubble.vue'
 
 import TaskService from '@/services/task'
+import TaskRelationService from '@/services/taskRelation'
+import TaskRelationModel from '@/models/taskRelation'
 
-import {success} from '@/message'
+import {success, error} from '@/message'
+import {RELATION_KIND, type IRelationKind} from '@/types/IRelationKind'
 
 import {useProjectStore} from '@/stores/projects'
 import {useBaseStore} from '@/stores/base'
@@ -211,6 +227,7 @@ const props = withDefaults(defineProps<{
 	canMarkAsDone?: boolean,
 	allTasks?: ITask[],
 	isNestTarget?: boolean,
+	parentRelation?: { parentTaskId: number, relationKind: IRelationKind } | null,
 }>(), {
 	isArchived: false,
 	showProject: false,
@@ -218,10 +235,12 @@ const props = withDefaults(defineProps<{
 	canMarkAsDone: true,
 	allTasks: () => [],
 	isNestTarget: false,
+	parentRelation: null,
 })
 
 const emit = defineEmits<{
 	'taskUpdated': [task: ITask],
+	'relationChanged': [],
 }>()
 
 function getTaskById(taskId: number): ITask | undefined {
@@ -230,6 +249,66 @@ function getTaskById(taskId: number): ITask | undefined {
 	}
 
 	return props.allTasks.find(t => t.id === taskId)
+}
+
+const taskRelationService = new TaskRelationService()
+
+const localRelationKinds = ref<Record<number, IRelationKind>>({})
+
+const currentRelationKind = computed<IRelationKind>(() => {
+	return props.parentRelation?.relationKind ?? RELATION_KIND.SUBTASK
+})
+
+function getSubtaskRelationKind(subtaskId: number): IRelationKind {
+	return localRelationKinds.value[subtaskId] ?? RELATION_KIND.SUBTASK
+}
+
+function getSubtaskClass(subtaskId: number): Record<string, boolean> {
+	const kind = getSubtaskRelationKind(subtaskId)
+	return {
+		'subtask-nested': kind === RELATION_KIND.SUBTASK,
+		'relation-blocking': kind === RELATION_KIND.BLOCKING,
+		'relation-related': kind === RELATION_KIND.RELATED,
+	}
+}
+
+async function changeRelationKind(newKind: IRelationKind) {
+	if (!props.parentRelation) return
+	const oldKind = props.parentRelation.relationKind
+
+	try {
+		await taskRelationService.delete(new TaskRelationModel({
+			taskId: props.parentRelation.parentTaskId,
+			otherTaskId: task.value.id,
+			relationKind: oldKind,
+		}))
+
+		await taskRelationService.create(new TaskRelationModel({
+			taskId: props.parentRelation.parentTaskId,
+			otherTaskId: task.value.id,
+			relationKind: newKind,
+		}))
+
+		emit('relationChanged')
+	} catch (e: unknown) {
+		error(e)
+	}
+}
+
+async function removeRelation() {
+	if (!props.parentRelation) return
+
+	try {
+		await taskRelationService.delete(new TaskRelationModel({
+			taskId: props.parentRelation.parentTaskId,
+			otherTaskId: task.value.id,
+			relationKind: props.parentRelation.relationKind,
+		}))
+
+		emit('relationChanged')
+	} catch (e: unknown) {
+		error(e)
+	}
 }
 
 const {t} = useI18n({useScope: 'global'})
@@ -467,6 +546,17 @@ defineExpose({
 
 	&:hover .task-edit-button,
 	&.has-popup-open .task-edit-button {
+		opacity: 1;
+	}
+
+	.task-relation-chip {
+		opacity: 0;
+		transition: opacity $transition;
+		flex-shrink: 0;
+	}
+
+	&:hover .task-relation-chip,
+	&.has-popup-open .task-relation-chip {
 		opacity: 1;
 	}
 
