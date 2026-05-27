@@ -30,7 +30,7 @@
 					v-for="a in chip.assignees"
 					:key="a.id"
 					:user="a"
-					:avatar-size="20"
+					:avatar-size="16"
 					:show-username="false"
 					:is-inline="true"
 					class="inline-quick-add-chip__avatar"
@@ -985,6 +985,10 @@ defineExpose({
 	font-size: .8rem;
 	font-weight: 500;
 	line-height: 1.2;
+	// Fixed height = line (font-size * line-height) + padding (.3rem * 2) + border (1px * 2).
+	// Prevents avatars and label pills from expanding the chip.
+	block-size: calc(.8rem * 1.2 + .6rem + 2px);
+	box-sizing: border-box;
 	cursor: pointer;
 	transition: background-color $transition, color $transition, border-color $transition, box-shadow $transition;
 
@@ -1035,6 +1039,10 @@ defineExpose({
 }
 
 .inline-quick-add-chip__avatar {
+	:deep(.avatar-wrapper) {
+		margin-inline-end: 0;
+	}
+
 	:deep(.avatar) {
 		border-radius: 50%;
 	}
@@ -1046,6 +1054,14 @@ defineExpose({
 
 .inline-quick-add-chip__label {
 	pointer-events: none;
+}
+
+.inline-quick-add-chip--labels :deep(.tag) {
+	height: auto;
+	padding: .3rem .65rem;
+	font-size: .8rem;
+	font-weight: 500;
+	line-height: 1.2;
 }
 
 .inline-quick-add-chip__swatch {
@@ -1089,7 +1105,7 @@ defineExpose({
 
 .inline-quick-add-chip--labels.is-set {
 	background: transparent;
-	border-color: transparent;
+	border: 0;
 	padding: 0;
 	gap: .25rem;
 
@@ -1108,7 +1124,7 @@ defineExpose({
 .inline-quick-add-popup {
 	position: fixed;
 	z-index: 50;
-	padding: .5rem;
+	padding: .75rem;
 	background: var(--white);
 	border: 1px solid var(--grey-200);
 	border-radius: $radius;
@@ -1170,7 +1186,7 @@ defineExpose({
 }
 
 .inline-quick-add-color-picker {
-	padding: .5rem;
+	padding-block-start: .75rem;
 	border-block-start: 1px solid var(--grey-200);
 }
 
@@ -1178,7 +1194,6 @@ defineExpose({
 	display: flex;
 	align-items: center;
 	gap: .75rem;
-	padding: .5rem .25rem;
 
 	&__slider {
 		flex: 1;

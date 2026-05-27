@@ -5,7 +5,7 @@
 	>
 		<div
 			ref="taskRoot"
-			:class="{'is-loading': taskService.loading, 'has-custom-background-color': getHexColor(task.hexColor)}"
+			:class="{'is-loading': taskService.loading, 'has-custom-background-color': getHexColor(task.hexColor), 'has-popup-open': hasPopupOpen}"
 			class="task loader-container single-task"
 			:style="{'background-color': getHexColor(task.hexColor) || undefined}"
 			tabindex="-1"
@@ -26,20 +26,7 @@
 			</span>
 
 			<div class="task-content">
-				<input
-					v-if="isEditingTitle"
-					ref="titleInputRef"
-					v-model="editTitleValue"
-					class="task-title-input"
-					@keydown.enter.prevent="saveTitle"
-					@keydown.esc.prevent="cancelEditTitle"
-					@blur="saveTitle"
-					@click.stop
-				>
-				<div
-					v-else
-					class="task-title-row"
-				>
+				<div class="task-title-row">
 					<span
 						v-if="!isEditorContentEmpty(task.description)"
 						class="project-task-icon is-mirrored-rtl task-description-icon"
@@ -74,7 +61,18 @@
 						/>
 
 						<TaskGlanceTooltip :task="task">
+							<span
+								v-if="isEditingTitle"
+								ref="titleEditRef"
+								class="task-link task-title-editable"
+								contenteditable="true"
+								@keydown.enter.prevent="saveTitle"
+								@keydown.esc.prevent="cancelEditTitle"
+								@blur="saveTitle"
+								@click.stop
+							>{{ task.title }}</span>
 							<RouterLink
+								v-else
 								ref="taskLinkRef"
 								:to="taskDetailRoute"
 								class="task-link"
@@ -85,7 +83,7 @@
 						</TaskGlanceTooltip>
 					</div>
 					<BaseButton
-						v-if="!disabled && !isArchived"
+						v-if="!disabled && !isArchived && !isEditingTitle"
 						class="task-edit-button"
 						@click.stop="startEditTitle"
 					>
@@ -97,6 +95,7 @@
 						class="task-inline-fields"
 					>
 						<InlineQuickAddFields
+							ref="inlineFieldsRef"
 							:task="task"
 							:project-id="task.projectId"
 							variant="inline"
@@ -178,7 +177,7 @@
 </template>
 
 <script setup lang="ts">
-import {ref, watch, shallowReactive, computed, nextTick} from 'vue'
+import {ref, watch, shallowReactive, computed, nextTick, type ComponentInstance} from 'vue'
 import {useI18n} from 'vue-i18n'
 
 import TaskModel, {getHexColor} from '@/models/task'
@@ -322,29 +321,42 @@ async function toggleFavorite() {
 
 const taskRoot = ref<HTMLElement | null>(null)
 const taskLinkRef = ref<HTMLElement | null>(null)
-const titleInputRef = ref<HTMLInputElement | null>(null)
+const titleEditRef = ref<HTMLElement | null>(null)
+const inlineFieldsRef = ref<ComponentInstance<typeof InlineQuickAddFields> | null>(null)
+const hasPopupOpen = computed(() => inlineFieldsRef.value?.isPopupOpen ?? false)
 
 const isEditingTitle = ref(false)
-const editTitleValue = ref('')
 
 async function startEditTitle() {
-	editTitleValue.value = task.value.title
 	isEditingTitle.value = true
 	await nextTick()
-	titleInputRef.value?.focus()
-	titleInputRef.value?.select()
+	const el = titleEditRef.value
+	if (!el) return
+	el.focus()
+	const range = document.createRange()
+	range.selectNodeContents(el)
+	const sel = window.getSelection()
+	sel?.removeAllRanges()
+	sel?.addRange(range)
 }
 
 async function saveTitle() {
 	if (!isEditingTitle.value) return
+	const trimmed = titleEditRef.value?.textContent?.trim() ?? ''
+	if (trimmed === '' || trimmed === task.value.title) {
+		isEditingTitle.value = false
+		return
+	}
+	task.value.title = trimmed
 	isEditingTitle.value = false
-	const trimmed = editTitleValue.value.trim()
-	if (trimmed === '' || trimmed === task.value.title) return
 	task.value = await taskStore.update({...task.value, title: trimmed})
 	emit('taskUpdated', task.value)
 }
 
 function cancelEditTitle() {
+	if (titleEditRef.value) {
+		titleEditRef.value.textContent = task.value.title
+	}
 	isEditingTitle.value = false
 }
 
@@ -356,7 +368,7 @@ function hasTextSelected() {
 function openTaskDetail(event: MouseEvent | KeyboardEvent) {
 	if (isEditingTitle.value) return
 	if (event.target instanceof HTMLElement) {
-		const isInteractiveElement = event.target.closest('a, button, label, input, .favorite, [role="button"]')
+		const isInteractiveElement = event.target.closest('a, button, label, input, [contenteditable], .favorite, [role="button"]')
 		if (isInteractiveElement || hasTextSelected()) {
 			return
 		}
@@ -446,21 +458,20 @@ defineExpose({
 		}
 	}
 
-	&:hover .task-edit-button {
+	&:hover .task-edit-button,
+	&.has-popup-open .task-edit-button {
 		opacity: 1;
 	}
 
-	.task-title-input {
-		flex: 1 1 0;
-		min-inline-size: 0;
-		font: inherit;
-		font-size: inherit;
-		color: var(--text);
-		background: var(--grey-100);
-		border: 1px solid var(--primary);
-		border-radius: $radius;
-		padding: .1rem .35rem;
+	.task-title-editable {
+		cursor: text;
 		outline: none;
+		border-radius: $radius;
+		box-decoration-break: clone;
+
+		&:focus {
+			box-shadow: 0 0 0 2px hsla(var(--primary-hsl), 0.3);
+		}
 	}
 
 	.task-meta-icons {
@@ -487,7 +498,8 @@ defineExpose({
 		}
 	}
 
-	&:hover .task-inline-fields :deep(.inline-quick-add-chip:not(.is-set)) {
+	&:hover .task-inline-fields :deep(.inline-quick-add-chip:not(.is-set)),
+	&.has-popup-open .task-inline-fields :deep(.inline-quick-add-chip:not(.is-set)) {
 		opacity: .5;
 		clip-path: inset(0 0 0 0);
 		pointer-events: auto;

@@ -6,6 +6,7 @@
 			'draggable': !(loadingInternal || loading),
 			'has-light-text': !colorIsDark(color),
 			'has-custom-background-color': color ?? undefined,
+			'has-popup-open': hasPopupOpen,
 		}"
 		:style="{'background-color': color ?? undefined}"
 		:data-task-id="task.id"
@@ -212,6 +213,12 @@ function cancelCollapse() {
 }
 
 onBeforeUnmount(() => cancelCollapse())
+
+watch(hasPopupOpen, (open) => {
+	if (!open && isExpanded.value) {
+		scheduleCollapse()
+	}
+})
 
 const color = computed(() => getHexColor(props.task.hexColor))
 
@@ -504,6 +511,7 @@ $task-background: var(--white);
 }
 
 .task:hover .kanban-card__toggle,
+.task.has-popup-open .kanban-card__toggle,
 .kanban-card__inline-fields.is-open + .kanban-card__toggle {
 	display: flex;
 }

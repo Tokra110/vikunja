@@ -427,7 +427,6 @@ function toggleAmPm() {
 	display: flex;
 	flex-direction: column;
 	gap: 1px;
-	padding: .25rem;
 }
 
 .datepicker__quick-select-date {
@@ -477,7 +476,7 @@ function toggleAmPm() {
 	align-items: center;
 	justify-content: center;
 	gap: .35rem;
-	padding: .5rem;
+	padding-block-start: .75rem;
 	border-block-start: 1px solid var(--grey-200);
 	margin-block-start: auto;
 }
