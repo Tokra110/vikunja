@@ -10,7 +10,10 @@ export function isInNestZone(pointerY: number, rect: Pick<DOMRect, 'top' | 'heig
 	return pointerY >= nestStart && pointerY <= nestEnd
 }
 
-export function useTaskDragNesting(containerRef: Ref<HTMLElement | null>) {
+export function useTaskDragNesting(
+	containerRef: Ref<HTMLElement | null>,
+	canNestInto?: (draggedId: number, targetId: number) => boolean,
+) {
 	const nestTargetTaskId = ref<number | null>(null)
 	const isDragging = ref(false)
 	let draggedTaskId: number | null = null
@@ -29,6 +32,7 @@ export function useTaskDragNesting(containerRef: Ref<HTMLElement | null>) {
 			const rect = el.getBoundingClientRect()
 			if (event.clientX < rect.left || event.clientX > rect.right) continue
 			if (isInNestZone(event.clientY, rect)) {
+				if (canNestInto && !canNestInto(draggedTaskId!, taskId)) continue
 				found = taskId
 				break
 			}

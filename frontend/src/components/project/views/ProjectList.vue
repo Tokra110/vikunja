@@ -92,6 +92,7 @@
 								:all-tasks="allTasks"
 								:is-nest-target="nestTargetTaskId === task.id"
 								@taskUpdated="updateTasks"
+								@relationChanged="loadTasks"
 							>
 								<span
 									v-if="canDragTasks && isPositionSorting"
@@ -167,7 +168,17 @@ const ctaVisible = ref(false)
 const drag = ref(false)
 
 const taskListRef = ref<HTMLElement | null>(null)
-const {nestTargetTaskId, startDrag: startNestDetection, endDrag: endNestDetection} = useTaskDragNesting(taskListRef)
+
+function canNestInto(draggedId: number, targetId: number): boolean {
+	const dragged = allTasks.value.find(t => t.id === draggedId)
+	const target = allTasks.value.find(t => t.id === targetId)
+	if (!dragged || !target) return false
+	if (target.relatedTasks?.subtask?.some(s => s.id === draggedId)) return false
+	if (dragged.relatedTasks?.parenttask?.some(p => p.id === targetId)) return false
+	return true
+}
+
+const {nestTargetTaskId, startDrag: startNestDetection, endDrag: endNestDetection} = useTaskDragNesting(taskListRef, canNestInto)
 
 const {
 	tasks: allTasks,
@@ -366,6 +377,9 @@ async function nestTaskAsSubtask(childTask: ITask, parentTaskId: number) {
 
 	// Prevent nesting a task that's already a subtask of this parent
 	if (parentTask.relatedTasks?.subtask?.some(s => s.id === childTask.id)) return
+
+	// Prevent nesting a task that already has this parent
+	if (childTask.relatedTasks?.parenttask?.some(p => p.id === parentTaskId)) return
 
 	try {
 		await taskRelationService.create(new TaskRelationModel({
