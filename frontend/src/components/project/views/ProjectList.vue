@@ -22,6 +22,7 @@
 
 		<template #default>
 			<div
+				ref="taskListRef"
 				:class="{ 'is-loading': loading }"
 				class="loader-container list-view"
 			>
@@ -89,6 +90,7 @@
 								:can-mark-as-done="canWrite || isPseudoProject"
 								:the-task="t"
 								:all-tasks="allTasks"
+								:is-nest-target="nestTargetTaskId === t.id"
 								@taskUpdated="updateTasks"
 							>
 								<span
@@ -128,6 +130,7 @@ import SortPopup from '@/components/project/partials/SortPopup.vue'
 
 import {useTaskList} from '@/composables/useTaskList'
 import {useTaskDragToProject} from '@/composables/useTaskDragToProject'
+import {useTaskDragNesting} from '@/composables/useTaskDragNesting'
 import {shouldShowTaskInListView} from '@/composables/useTaskListFiltering'
 import {PERMISSIONS as Permissions} from '@/constants/permissions'
 import {calculateItemPosition} from '@/helpers/calculateItemPosition'
@@ -155,6 +158,9 @@ defineOptions({name: 'List'})
 const ctaVisible = ref(false)
 
 const drag = ref(false)
+
+const taskListRef = ref<HTMLElement | null>(null)
+const {nestTargetTaskId, startDrag: startNestDetection, endDrag: endNestDetection} = useTaskDragNesting(taskListRef)
 
 const {
 	tasks: allTasks,
@@ -297,11 +303,13 @@ function handleDragStart(e: { item: HTMLElement }) {
 
 	if (task) {
 		taskStore.setDraggedTask(task)
+		startNestDetection(taskId)
 	}
 }
 
 async function saveTaskPosition(e: { originalEvent?: MouseEvent, to: HTMLElement, from: HTMLElement, newIndex: number }) {
 	drag.value = false
+	const {nestTargetId: _nestTargetId} = endNestDetection()
 
 	// Check if dropped on a sidebar project
 	const {moved} = await handleTaskDropToProject(e, (task) => {

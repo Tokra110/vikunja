@@ -5,7 +5,7 @@
 	>
 		<div
 			ref="taskRoot"
-			:class="{'is-loading': taskService.loading, 'has-custom-background-color': getHexColor(task.hexColor), 'has-popup-open': hasPopupOpen}"
+			:class="{'is-loading': taskService.loading, 'has-custom-background-color': getHexColor(task.hexColor), 'has-popup-open': hasPopupOpen, 'is-nest-target': isNestTarget}"
 			class="task loader-container single-task"
 			:style="{'background-color': getHexColor(task.hexColor) || undefined}"
 			tabindex="-1"
@@ -210,12 +210,14 @@ const props = withDefaults(defineProps<{
 	disabled?: boolean,
 	canMarkAsDone?: boolean,
 	allTasks?: ITask[],
+	isNestTarget?: boolean,
 }>(), {
 	isArchived: false,
 	showProject: false,
 	disabled: false,
 	canMarkAsDone: true,
 	allTasks: () => [],
+	isNestTarget: false,
 })
 
 const emit = defineEmits<{
@@ -392,6 +394,11 @@ defineExpose({
 	cursor: pointer;
 	border-radius: $radius;
 	border: 2px solid transparent;
+
+	&.is-nest-target {
+		border: 2px solid var(--primary);
+		background-color: hsla(var(--primary-hsl), 0.05);
+	}
 
 	&:hover {
 		background-color: var(--grey-100);
