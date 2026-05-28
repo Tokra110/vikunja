@@ -19,14 +19,25 @@
 					@update:modelValue="updateData"
 				/>
 
-				<XButton
-					v-cy="'closeDatepicker'"
-					class="datepicker__close-button"
-					:shadow="false"
-					@click="close"
-				>
-					{{ $t('misc.confirm') }}
-				</XButton>
+				<div class="datepicker-popup__actions">
+					<BaseButton
+						v-if="date !== null"
+						v-cy="'removeDatepicker'"
+						class="datepicker__remove-button"
+						:title="$t('misc.delete')"
+						@click="removeDate"
+					>
+						<Icon icon="trash-alt" />
+					</BaseButton>
+					<XButton
+						v-cy="'closeDatepicker'"
+						class="datepicker__close-button"
+						:shadow="false"
+						@click="close"
+					>
+						{{ $t('misc.confirm') }}
+					</XButton>
+				</div>
 			</div>
 		</CustomTransition>
 	</div>
@@ -35,6 +46,7 @@
 <script setup lang="ts">
 import {ref, onMounted, onBeforeUnmount, toRef, watch} from 'vue'
 
+import BaseButton from '@/components/base/BaseButton.vue'
 import CustomTransition from '@/components/misc/CustomTransition.vue'
 import DatepickerInline from '@/components/input/DatepickerInline.vue'
 import SimpleButton from '@/components/input/SimpleButton.vue'
@@ -89,6 +101,12 @@ function updateData() {
 	emit('update:modelValue', date.value ?? null)
 }
 
+function removeDate() {
+	date.value = null
+	updateData()
+	close()
+}
+
 function toggleDatePopup() {
 	if (props.disabled) {
 		return
@@ -138,9 +156,31 @@ function close() {
 	}
 }
 
-.datepicker__close-button {
+.datepicker-popup__actions {
+	display: flex;
+	align-items: stretch;
+	gap: .5rem;
 	margin: 1rem;
-	inline-size: calc(100% - 2rem);
+}
+
+.datepicker__close-button {
+	flex: 1;
+}
+
+.datepicker__remove-button {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex: 0 0 auto;
+	padding-inline: .85rem;
+	border-radius: $radius;
+	color: var(--danger);
+	transition: background-color $transition, color $transition;
+
+	&:hover {
+		background: var(--danger);
+		color: var(--white);
+	}
 }
 
 :deep(.flatpickr-calendar) {

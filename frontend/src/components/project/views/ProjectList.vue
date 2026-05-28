@@ -23,7 +23,7 @@
 		<template #default>
 			<div
 				ref="taskListRef"
-				:class="{ 'is-loading': loading }"
+				:class="{ 'is-loading': loading && !suppressListLoading }"
 				class="loader-container list-view"
 			>
 				<Card
@@ -51,7 +51,7 @@
 						</div>
 					</div>
 
-					<Nothing v-if="ctaVisible && tasks.length === 0 && !loading">
+					<Nothing v-if="ctaVisible && allTasks.length === 0 && !loading">
 						{{ $t('project.list.empty') }}
 						<ButtonLink
 							v-if="project?.id > 0 && canWrite"
@@ -71,14 +71,23 @@
 						:disable-drop="!canDragTasks || !isPositionSorting"
 						:update-behavior="'modify'"
 						:default-open="true"
-						node-key="id"
+						:node-key="getTaskNodeKey"
 						trigger-class="task-drag-trigger"
 						class="tasks task-tree"
-						@after-drop="handleTreeDrop"
+						:class="{
+							'is-tree-dragging': isTreeDragging,
+							'is-nest-preview': treeDropPreview === 'nest',
+							'is-detach-preview': treeDropPreview === 'detach',
+						}"
+						:each-droppable="canDropOnTask"
+						:drag-open-delay="350"
+						@beforeDragStart="handleTreeDragStart"
+						@afterDrop="handleTreeDrop"
 					>
 						<template #default="{node, stat}">
 							<SingleTaskInProject
 								:ref="(el) => setTaskRef(el as InstanceType<typeof SingleTaskInProject> | null, stat.index)"
+								:class="{'is-nest-target': node.id === nestPreviewTaskId}"
 								:show-list-color="false"
 								:can-mark-as-done="canWrite || isPseudoProject"
 								:the-task="node"
@@ -116,7 +125,6 @@ import Pagination from '@/components/misc/Pagination.vue'
 import SortPopup from '@/components/project/partials/SortPopup.vue'
 
 import {useTaskList} from '@/composables/useTaskList'
-import {shouldShowTaskInListView} from '@/composables/useTaskListFiltering'
 import {PERMISSIONS as Permissions} from '@/constants/permissions'
 import {calculateItemPosition} from '@/helpers/calculateItemPosition'
 import type {ITask} from '@/modelTypes/ITask'
@@ -135,6 +143,18 @@ import {RELATION_KIND} from '@/types/IRelationKind'
 import {error} from '@/message'
 
 type TreeNode = ITask & { children: TreeNode[] }
+type TreeLocation = {
+	parent: TreeNode | null,
+	siblings: TreeNode[],
+	index: number,
+}
+type TreeStat = {
+	data: TreeNode,
+	parent: TreeStat | null,
+	children: TreeStat[],
+	hidden?: boolean,
+}
+type TreeDropPreview = 'reorder' | 'nest' | 'detach'
 
 const props = defineProps<{
         isLoadingProject: boolean,
@@ -178,8 +198,7 @@ const tasks = ref<ITask[]>([])
 watch(
 	allTasks,
 	() => {
-		const isFiltered = isSavedFilter({id: projectId.value})
-		tasks.value = ([...allTasks.value]).filter(t => shouldShowTaskInListView(t, allTasks.value, isFiltered))
+		tasks.value = [...allTasks.value]
 	},
 )
 
@@ -187,26 +206,92 @@ function buildTaskTree(flatTasks: ITask[]): TreeNode[] {
 	const taskMap = new Map<number, ITask>()
 	for (const t of flatTasks) taskMap.set(t.id, t)
 
+	const childIdsByParent = new Map<number, Set<number>>()
+	const addChild = (parentId: number, childId: number) => {
+		if (parentId === childId || !taskMap.has(parentId) || !taskMap.has(childId)) {
+			return
+		}
+
+		if (!childIdsByParent.has(parentId)) {
+			childIdsByParent.set(parentId, new Set())
+		}
+
+		childIdsByParent.get(parentId)!.add(childId)
+	}
+
 	const childIds = new Set<number>()
 	for (const t of flatTasks) {
 		for (const sub of (t.relatedTasks?.subtask ?? [])) {
-			if (taskMap.has(sub.id)) childIds.add(sub.id)
+			if (taskMap.has(sub.id)) {
+				childIds.add(sub.id)
+				addChild(t.id, sub.id)
+			}
+		}
+
+		for (const parent of (t.relatedTasks?.parenttask ?? [])) {
+			if (taskMap.has(parent.id)) {
+				childIds.add(t.id)
+				addChild(parent.id, t.id)
+			}
 		}
 	}
 
 	const roots = flatTasks.filter(t => !childIds.has(t.id))
 
-	function toTreeNode(task: ITask): TreeNode {
-		const subtasks = (task.relatedTasks?.subtask ?? [])
-			.map(s => taskMap.get(s.id))
+	function toTreeNode(task: ITask, seenTaskIds = new Set<number>()): TreeNode {
+		if (seenTaskIds.has(task.id)) {
+			return {
+				...task,
+				children: [],
+			}
+		}
+
+		const nextSeenTaskIds = new Set(seenTaskIds)
+		nextSeenTaskIds.add(task.id)
+		const subtasks = [...(childIdsByParent.get(task.id) ?? [])]
+			.map(taskId => taskMap.get(taskId))
 			.filter(Boolean) as ITask[]
+
 		return {
 			...task,
-			children: subtasks.map(toTreeNode),
+			children: subtasks.map(subtask => toTreeNode(subtask, nextSeenTaskIds)),
 		}
 	}
 
-	return roots.map(toTreeNode)
+	return roots.map(task => toTreeNode(task))
+}
+
+function findTreeLocation(nodes: TreeNode[], taskId: ITask['id'], parent: TreeNode | null = null): TreeLocation | null {
+	const index = nodes.findIndex(node => node.id === taskId)
+	if (index !== -1) {
+		return {
+			parent,
+			siblings: nodes,
+			index,
+		}
+	}
+
+	for (const node of nodes) {
+		const location = findTreeLocation(node.children, taskId, node)
+		if (location !== null) {
+			return location
+		}
+	}
+
+	return null
+}
+
+function hasRelationBetween(firstTask: ITask, secondTask: ITask): boolean {
+	const hasRelationToSecond = Object.values(firstTask.relatedTasks ?? {})
+		.some(relatedTasks => relatedTasks?.some(task => task.id === secondTask.id))
+	const hasRelationToFirst = Object.values(secondTask.relatedTasks ?? {})
+		.some(relatedTasks => relatedTasks?.some(task => task.id === firstTask.id))
+
+	return hasRelationToSecond || hasRelationToFirst
+}
+
+function getTaskNodeKey(stat: TreeStat) {
+	return stat.data.id
 }
 
 const treeData = ref<TreeNode[]>([])
@@ -217,6 +302,17 @@ watch(
 	},
 	{immediate: true},
 )
+
+const suppressListLoading = ref(false)
+
+async function reloadTasksWithoutListFlash() {
+	suppressListLoading.value = true
+	try {
+		await loadTasks(false)
+	} finally {
+		suppressListLoading.value = false
+	}
+}
 
 const isPositionSorting = computed(() => 'position' in sortByParam.value)
 
@@ -314,20 +410,202 @@ function updateTasks(updatedTask: ITask) {
 	}
 }
 
+const isTreeDragging = ref(false)
+const nestPreviewTaskId = ref<ITask['id'] | null>(null)
+const treeDropPreview = ref<TreeDropPreview>('reorder')
+const treeDragStartParentId = ref<ITask['id'] | null>(null)
+let treeDragPreviewFrame: number | null = null
+let draggedTaskGhostFrame: number | null = null
+
+function canDropOnTask(stat: TreeStat): boolean | null {
+	const draggedTask = dragContext.dragNode?.data as ITask | undefined
+	const targetTask = stat.data
+
+	if (!draggedTask || draggedTask.id === targetTask.id) {
+		return false
+	}
+
+	// Reordering under the existing parent must stay allowed even though that
+	// parent already has a subtask relation to the dragged task.
+	if (dragContext.startInfo?.parent?.data.id === targetTask.id) {
+		return true
+	}
+
+	return !hasRelationBetween(draggedTask, targetTask)
+}
+
+function handleTreeDragStart(stat: TreeStat) {
+	isTreeDragging.value = true
+	treeDragStartParentId.value = stat.parent?.data.id ?? null
+	keepDraggedTaskGhostVisible(stat)
+	maintainDraggedTaskGhost()
+	document.addEventListener('dragover', scheduleTreeDragPreviewSync, true)
+	document.addEventListener('dragend', stopTreeDragPreview, {once: true})
+	document.addEventListener('drop', stopTreeDragPreview, {once: true})
+}
+
+function keepDraggedTaskGhostVisible(stat?: TreeStat) {
+	const draggedStat = stat ?? (dragContext.dragNode as TreeStat | null)
+	if (draggedStat) {
+		draggedStat.hidden = false
+	}
+}
+
+function maintainDraggedTaskGhost() {
+	if (!isTreeDragging.value) {
+		draggedTaskGhostFrame = null
+		return
+	}
+
+	keepDraggedTaskGhostVisible()
+	draggedTaskGhostFrame = window.requestAnimationFrame(maintainDraggedTaskGhost)
+}
+
+function scheduleTreeDragPreviewSync() {
+	if (treeDragPreviewFrame !== null) {
+		return
+	}
+
+	const previousRects = captureTaskNodeRects()
+	treeDragPreviewFrame = window.requestAnimationFrame(() => {
+		treeDragPreviewFrame = null
+		keepDraggedTaskGhostVisible()
+		syncTreeDragPreview()
+		animateTaskNodeShifts(previousRects)
+	})
+}
+
+function captureTaskNodeRects() {
+	const taskNodeRects = new Map<ITask['id'], DOMRect>()
+
+	for (const taskNode of getTaskTreeNodes()) {
+		const taskElement = taskNode.querySelector('[data-task-id]') as HTMLElement | null
+		const taskId = Number(taskElement?.dataset.taskId)
+		if (!Number.isNaN(taskId)) {
+			taskNodeRects.set(taskId, taskNode.getBoundingClientRect())
+		}
+	}
+
+	return taskNodeRects
+}
+
+function animateTaskNodeShifts(previousRects: Map<ITask['id'], DOMRect>) {
+	if (previousRects.size === 0 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+		return
+	}
+
+	for (const taskNode of getTaskTreeNodes()) {
+		if (taskNode.classList.contains('dragging-node')) {
+			continue
+		}
+
+		const taskElement = taskNode.querySelector('[data-task-id]') as HTMLElement | null
+		const taskId = Number(taskElement?.dataset.taskId)
+		const previousRect = previousRects.get(taskId)
+		if (!previousRect) {
+			continue
+		}
+
+		const currentRect = taskNode.getBoundingClientRect()
+		const deltaX = previousRect.left - currentRect.left
+		const deltaY = previousRect.top - currentRect.top
+		if (Math.abs(deltaX) < 1 && Math.abs(deltaY) < 1) {
+			continue
+		}
+
+		const previousTransition = taskNode.style.transition
+		const previousWillChange = taskNode.style.willChange
+		taskNode.style.transition = 'none'
+		taskNode.style.transform = `translate(${deltaX}px, ${deltaY}px)`
+		taskNode.style.willChange = 'transform'
+
+		window.requestAnimationFrame(() => {
+			taskNode.style.transition = 'transform 120ms cubic-bezier(.2, 0, .2, 1)'
+			taskNode.style.transform = ''
+		})
+
+		window.setTimeout(() => {
+			taskNode.style.transition = previousTransition
+			taskNode.style.willChange = previousWillChange
+		}, 150)
+	}
+}
+
+function getTaskTreeNodes(): HTMLElement[] {
+	return Array.from(taskListRef.value?.querySelectorAll('.task-tree .tree-node:not(.drag-placeholder-wrapper)') ?? []) as HTMLElement[]
+}
+
+function syncTreeDragPreview() {
+	const tree = treeRef.value as (InstanceType<typeof Draggable> & {
+		placeholderData: unknown,
+		has: (data: unknown) => boolean,
+		getStat: (data: unknown) => TreeStat | null,
+	}) | null
+
+	if (!tree?.has(tree.placeholderData)) {
+		nestPreviewTaskId.value = null
+		treeDropPreview.value = 'reorder'
+		return
+	}
+
+	const placeholder = tree.getStat(tree.placeholderData) as TreeStat | null
+	const previewParentId = placeholder?.parent?.data.id ?? null
+
+	if (previewParentId !== null && previewParentId !== treeDragStartParentId.value) {
+		nestPreviewTaskId.value = previewParentId
+		treeDropPreview.value = 'nest'
+		return
+	}
+
+	nestPreviewTaskId.value = null
+	treeDropPreview.value = previewParentId === null && treeDragStartParentId.value !== null
+		? 'detach'
+		: 'reorder'
+}
+
+function stopTreeDragPreview() {
+	if (treeDragPreviewFrame !== null) {
+		window.cancelAnimationFrame(treeDragPreviewFrame)
+		treeDragPreviewFrame = null
+	}
+	if (draggedTaskGhostFrame !== null) {
+		window.cancelAnimationFrame(draggedTaskGhostFrame)
+		draggedTaskGhostFrame = null
+	}
+
+	isTreeDragging.value = false
+	nestPreviewTaskId.value = null
+	treeDropPreview.value = 'reorder'
+	treeDragStartParentId.value = null
+	document.removeEventListener('dragover', scheduleTreeDragPreviewSync, true)
+	document.removeEventListener('dragend', stopTreeDragPreview)
+	document.removeEventListener('drop', stopTreeDragPreview)
+}
+
 async function handleTreeDrop() {
 	const {startInfo, dragNode} = dragContext
-	if (!startInfo || !dragNode) return
+	if (!startInfo || !dragNode) {
+		stopTreeDragPreview()
+		return
+	}
 
 	const task = dragNode.data as ITask
 	const oldParentStat = startInfo.parent
-	const newParentStat = dragNode.parent
-
 	const oldParent = oldParentStat ? (oldParentStat.data as ITask) : undefined
-	const newParent = newParentStat ? (newParentStat.data as ITask) : undefined
+	const newLocation = findTreeLocation(treeData.value, task.id)
+
+	if (newLocation === null) {
+		await reloadTasksWithoutListFlash()
+		stopTreeDragPreview()
+		return
+	}
+
+	const newParent = newLocation.parent ?? undefined
 
 	const wasChild = !!oldParent
 	const isNowChild = !!newParent
 	const parentChanged = wasChild !== isNowChild || oldParent?.id !== newParent?.id
+	const positionChanged = parentChanged || startInfo.indexBeforeDrop !== newLocation.index
 
 	try {
 		// Remove old relation if it was a subtask and parent changed
@@ -348,12 +626,9 @@ async function handleTreeDrop() {
 			}))
 		}
 
-		// Handle position update for root-level reorder (root→root, no parent change)
-		if (!isNowChild && !parentChanged) {
-			const rootNodes = treeData.value
-			const idx = rootNodes.findIndex(n => n.id === task.id)
-			const taskBefore = idx > 0 ? rootNodes[idx - 1] : null
-			const taskAfter = idx < rootNodes.length - 1 ? rootNodes[idx + 1] : null
+		if (positionChanged) {
+			const taskBefore = newLocation.index > 0 ? newLocation.siblings[newLocation.index - 1] : null
+			const taskAfter = newLocation.index < newLocation.siblings.length - 1 ? newLocation.siblings[newLocation.index + 1] : null
 
 			const position = calculateItemPosition(
 				taskBefore !== null ? taskBefore.position : null,
@@ -367,10 +642,12 @@ async function handleTreeDrop() {
 			}))
 		}
 
-		await loadTasks()
+		await reloadTasksWithoutListFlash()
 	} catch (e: unknown) {
 		error(e)
 		await loadTasks() // revert on error
+	} finally {
+		stopTreeDragPreview()
 	}
 }
 
@@ -438,6 +715,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+	stopTreeDragPreview()
 	document.removeEventListener('keydown', handleListNavigation)
 })
 </script>
@@ -530,15 +808,41 @@ onBeforeUnmount(() => {
 // he-tree drag overrides
 .task-tree {
 	:deep(.he-tree-drag-placeholder) {
-		height: 3px !important;
+		block-size: 3px !important;
 		background: var(--primary);
 		border: none;
 		border-radius: 2px;
 		margin: 4px 0;
+		box-shadow: 0 0 0 1px hsla(var(--primary-hsl), .12);
+		transition: background-color $transition, box-shadow $transition;
 	}
 
 	:deep(.tree-node) {
 		padding: 0;
+	}
+
+	&.is-nest-preview {
+		:deep(.he-tree-drag-placeholder) {
+			background: var(--success);
+			box-shadow: 0 0 0 1px hsla(var(--success-h), var(--success-s), var(--success-l), .18);
+		}
+	}
+
+	&.is-detach-preview {
+		:deep(.he-tree-drag-placeholder) {
+			background: var(--warning);
+			box-shadow: 0 0 0 1px hsla(var(--warning-h), var(--warning-s), var(--warning-l), .18);
+		}
+	}
+
+	:deep(.is-nest-target > .single-task) {
+		border-color: var(--success);
+		box-shadow: 0 0 0 3px hsla(var(--success-h), var(--success-s), var(--success-l), .18);
+	}
+
+	:deep(.dragging-node > .single-task) {
+		opacity: .42;
+		box-shadow: var(--shadow-xs);
 	}
 }
 </style>
