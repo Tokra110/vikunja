@@ -183,6 +183,9 @@ func DeleteUser(s *xorm.Session, u *user.User) (err error) {
 			return err
 		}
 	}
+	if err = notifications.DeleteWebPushSubscriptionsForUser(s, u.ID); err != nil {
+		return err
+	}
 
 	err = DeleteAllUserSessions(s, u.ID)
 	if err != nil {

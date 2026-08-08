@@ -362,7 +362,13 @@ func sendDueReminders(s *xorm.Session, now time.Time, webhookEnabled bool) error
 	log.Debugf("[Task Reminder Cron] Sending %d reminders", len(reminders))
 
 	for _, n := range reminders {
-		err = notifications.Notify(n.User, n, s)
+		err = notifications.NotifyWithOptions(n.User, n, notifications.NotifyOptions{
+			Mail:        true,
+			Database:    true,
+			WebPush:     true,
+			DeliveryKey: fmt.Sprintf("task-reminder:%d:%d", n.User.ID, n.TaskReminder.ID),
+			PushTTL:     2 * time.Hour,
+		}, s)
 		if err != nil {
 			return fmt.Errorf("could not notify user %d: %w", n.User.ID, err)
 		}
@@ -389,6 +395,7 @@ func sendDueReminders(s *xorm.Session, now time.Time, webhookEnabled bool) error
 // next minute to send notifications.
 func RegisterReminderCron() {
 	webhookEnabled := config.WebhooksEnabled.GetBool()
+	pushEnabled := config.WebPushEnabled.GetBool()
 
 	if !config.ServiceEnableEmailReminders.GetBool() || !config.MailerEnabled.GetBool() {
 		log.Info("Mailer is disabled, not sending reminders per mail")
@@ -409,6 +416,10 @@ func RegisterReminderCron() {
 
 		if err := s.Commit(); err != nil {
 			log.Errorf("[Task Reminder Cron] Could not commit: %s", err)
+			return
+		}
+		if pushEnabled {
+			notifications.WakeWebPushWorker()
 		}
 	})
 	if err != nil {

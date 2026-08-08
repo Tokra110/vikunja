@@ -25,6 +25,7 @@ import (
 	"code.vikunja.io/api/pkg/db"
 	"code.vikunja.io/api/pkg/events"
 	"code.vikunja.io/api/pkg/log"
+	"code.vikunja.io/api/pkg/notifications"
 	"code.vikunja.io/api/pkg/utils"
 	"code.vikunja.io/api/pkg/web"
 
@@ -180,6 +181,9 @@ func (sess *Session) Delete(s *xorm.Session, a web.Auth) error {
 	if err != nil || deleted == 0 {
 		return err
 	}
+	if err := notifications.DeleteWebPushSubscriptionsForSession(s, sess.ID); err != nil {
+		return err
+	}
 	events.DispatchOnCommit(s, &SessionsRevokedEvent{UserID: a.GetID(), SessionID: sess.ID})
 	return nil
 }
@@ -191,6 +195,9 @@ func DeleteSessionByID(s *xorm.Session, id string) (*Session, error) {
 		return nil, err
 	}
 	if _, err := s.Where("id = ?", id).Delete(&Session{}); err != nil {
+		return nil, err
+	}
+	if err := notifications.DeleteWebPushSubscriptionsForSession(s, id); err != nil {
 		return nil, err
 	}
 	events.DispatchOnCommit(s, &SessionsRevokedEvent{UserID: session.UserID, SessionID: id})
@@ -230,6 +237,9 @@ func RotateRefreshToken(s *xorm.Session, session *Session) (newRawToken string, 
 
 // DeleteAllUserSessions removes all sessions for a user (e.g., on password change).
 func DeleteAllUserSessions(s *xorm.Session, userID int64) error {
+	if err := notifications.DeleteWebPushSubscriptionsForUser(s, userID); err != nil {
+		return err
+	}
 	_, err := s.Where("user_id = ?", userID).Delete(&Session{})
 	if err != nil {
 		return err
@@ -252,8 +262,12 @@ func RegisterSessionCleanupCron() {
 		shortMaxAge := time.Duration(config.ServiceJWTTTL.GetInt64()) * time.Second
 		longMaxAge := time.Duration(config.ServiceJWTTTLLong.GetInt64()) * time.Second
 
-		// Delete short sessions older than ServiceJWTTTL
-		// and long sessions older than ServiceJWTTTLLong
+		// Delete short sessions older than ServiceJWTTTL and long sessions
+		// older than ServiceJWTTTLLong. Web Push subscriptions are deliberately
+		// NOT removed here: they outlive the login session and are revoked only
+		// on explicit logout, account deletion, disabling push, or a Gone
+		// response from the push service, so an installed app keeps receiving
+		// notifications while it is closed.
 		deleted, err := s.
 			Where("(is_long_session = ? AND last_active < ?) OR (is_long_session = ? AND last_active < ?)",
 				false, now.Add(-shortMaxAge),
