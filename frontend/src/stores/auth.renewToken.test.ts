@@ -19,11 +19,13 @@ const sdk = vi.hoisted(() => ({
 	userShow: vi.fn(),
 }))
 
-const {queryClientClearMock, refreshTokenMock, routerPushMock, getTokenMock} = vi.hoisted(() => ({
+const {queryClientClearMock, refreshTokenMock, routerPushMock, getTokenMock, removeTokenMock, unsubscribeWebPushLocallyMock} = vi.hoisted(() => ({
 	queryClientClearMock: vi.fn(),
 	refreshTokenMock: vi.fn(),
 	routerPushMock: vi.fn(),
 	getTokenMock: vi.fn(() => null as string | null),
+	removeTokenMock: vi.fn(),
+	unsubscribeWebPushLocallyMock: vi.fn(),
 }))
 
 vi.mock('@/helpers/auth', async (importOriginal) => ({
@@ -32,7 +34,11 @@ vi.mock('@/helpers/auth', async (importOriginal) => ({
 	refreshToken: refreshTokenMock,
 	getToken: getTokenMock,
 	saveToken: vi.fn(),
-	removeToken: vi.fn(),
+	removeToken: removeTokenMock,
+}))
+
+vi.mock('@/services/webPush', () => ({
+	unsubscribeWebPushLocally: unsubscribeWebPushLocallyMock,
 }))
 
 vi.mock('@/router', () => ({
@@ -207,6 +213,20 @@ describe('auth store logout query lifecycle', () => {
 		resetSdkMocks()
 		queryClientClearMock.mockReset()
 		routerPushMock.mockReset().mockResolvedValue(undefined)
+		removeTokenMock.mockReset()
+		unsubscribeWebPushLocallyMock.mockReset().mockResolvedValue(undefined)
+	})
+
+	it('cleans up Web Push before clearing authentication when server logout fails', async () => {
+		const store = useAuthStore()
+		sdk.authLogout.mockRejectedValueOnce(new Error('offline'))
+
+		await store.logout()
+
+		expect(unsubscribeWebPushLocallyMock).toHaveBeenCalledOnce()
+		expect(removeTokenMock).toHaveBeenCalledOnce()
+		expect(sdk.authLogout.mock.invocationCallOrder[0]).toBeLessThan(unsubscribeWebPushLocallyMock.mock.invocationCallOrder[0])
+		expect(unsubscribeWebPushLocallyMock.mock.invocationCallOrder[0]).toBeLessThan(removeTokenMock.mock.invocationCallOrder[0])
 	})
 
 	it('clears server data before navigating away', async () => {

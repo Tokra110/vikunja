@@ -172,8 +172,20 @@ const unreadNotifications = computed(() => notifications.value.filter(n => !n.re
 const showNotifications = ref(false)
 const popup = ref<HTMLElement | null>(null)
 
-onMounted(() => document.addEventListener('click', hidePopup))
-onUnmounted(() => document.removeEventListener('click', hidePopup))
+onMounted(() => {
+	document.addEventListener('click', hidePopup)
+	navigator.serviceWorker?.addEventListener('message', handleServiceWorkerMessage)
+})
+onUnmounted(() => {
+	document.removeEventListener('click', hidePopup)
+	navigator.serviceWorker?.removeEventListener('message', handleServiceWorkerMessage)
+})
+
+function handleServiceWorkerMessage(event: MessageEvent) {
+	if (event.data?.type === 'web-push-received') {
+		inbox.refetch().catch(error => console.warn('Failed to refresh notifications after Web Push:', error))
+	}
+}
 
 function hidePopup(e: MouseEvent) {
 	if (showNotifications.value && popup.value !== null) {

@@ -84,6 +84,8 @@ function defaultConfig(): ConfigState {
 		allow_icon_changes: true,
 		enabled_pro_features: [],
 		concurrent_writes: false,
+		web_push_enabled: false,
+		web_push_public_key: '',
 	}
 }
 
