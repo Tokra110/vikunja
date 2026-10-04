@@ -50,7 +50,7 @@ test.describe('Web Push settings', () => {
 			})
 		})
 
-		await page.route('**/api/v1/info', async route => {
+		await page.route('**/api/v2/info', async route => {
 			const response = await route.fetch()
 			const body = await response.json() as Record<string, unknown>
 			body.web_push_enabled = true
@@ -84,7 +84,6 @@ test.describe('Web Push settings', () => {
 		expect(registeredDeviceID).toMatch(/^[0-9a-f-]{36}$/)
 		expect(registeredSubscription).toEqual({
 			endpoint: 'https://push.example.test/device',
-			expiration_time: null,
 			keys: {p256dh: 'test-p256dh', auth: 'test-auth'},
 		})
 	})

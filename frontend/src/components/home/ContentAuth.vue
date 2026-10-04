@@ -94,11 +94,12 @@ import {useWebSocket} from '@/composables/useWebSocket'
 import {useServerCacheEvents} from '@/composables/useServerCacheEvents'
 import {useAuthStore} from '@/stores/auth'
 import {useConfigStore} from '@/stores/config'
-import {reconcileWebPushSubscription} from '@/services/webPush'
-import {AuthenticatedHTTPFactory, apiV2Url} from '@/helpers/fetcher'
+import {reconcileWebPushSubscription} from '@/helpers/webPush'
+import {useMarkNotificationReadMutation} from '@/client/queries/notifications'
 
 const authStore = useAuthStore()
 const configStore = useConfigStore()
+const markNotificationRead = useMarkNotificationReadMutation()
 const backgroundBrightness = computed(() =>
 	authStore.settings?.frontend_settings?.background_brightness,
 )
@@ -126,7 +127,7 @@ async function markClickedNotificationRead(value: unknown) {
 	}
 
 	try {
-		await AuthenticatedHTTPFactory().put(apiV2Url(`notifications/${notificationID}`), {read: true})
+		await markNotificationRead.mutateAsync(notificationID)
 	} catch (error) {
 		console.warn('Failed to mark clicked push notification as read:', error)
 	} finally {

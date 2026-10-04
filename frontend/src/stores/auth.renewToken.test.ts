@@ -37,7 +37,7 @@ vi.mock('@/helpers/auth', async (importOriginal) => ({
 	removeToken: removeTokenMock,
 }))
 
-vi.mock('@/services/webPush', () => ({
+vi.mock('@/helpers/webPush', () => ({
 	unsubscribeWebPushLocally: unsubscribeWebPushLocallyMock,
 }))
 

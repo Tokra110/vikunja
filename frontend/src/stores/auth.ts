@@ -603,7 +603,7 @@ export const useAuthStore = defineStore('auth', () => {
 		// The logout endpoint removes the session-bound server record. Always
 		// remove the browser subscription too, even when that request failed.
 		try {
-			const {unsubscribeWebPushLocally} = await import('@/services/webPush')
+			const {unsubscribeWebPushLocally} = await import('@/helpers/webPush')
 			await unsubscribeWebPushLocally()
 		} catch (_e) {
 			// Ignore — local logout must still complete

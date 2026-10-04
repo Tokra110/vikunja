@@ -390,7 +390,7 @@ import {
 	getWebPushState,
 	sendWebPushTest,
 	type WebPushState,
-} from '@/services/webPush'
+} from '@/helpers/webPush'
 
 const props = defineProps<{identity: AccountIdentity}>()
 

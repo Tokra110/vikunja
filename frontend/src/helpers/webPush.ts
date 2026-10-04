@@ -1,4 +1,9 @@
-import {AuthenticatedHTTPFactory, apiV2Url} from '@/helpers/fetcher'
+import {
+	webPushSubscriptionDelete,
+	webPushSubscriptionTest,
+	webPushSubscriptionUpsert,
+	type WebPushSubscriptionInputWritable,
+} from '@/client/generated'
 
 const DEVICE_ID_KEY = 'vikunja-web-push-device-id'
 
@@ -9,17 +14,6 @@ export type WebPushState =
 	| 'permission-denied'
 	| 'requires-install'
 	| 'configuration-error'
-
-interface WebPushKeys {
-	p256dh: string
-	auth: string
-}
-
-interface WebPushSubscriptionRequest {
-	endpoint: string
-	expiration_time: number | null
-	keys: WebPushKeys
-}
 
 function isIOS(): boolean {
 	return /iPad|iPhone|iPod/.test(navigator.userAgent)
@@ -54,7 +48,7 @@ function urlBase64ToUint8Array(value: string): Uint8Array<ArrayBuffer> {
 	return Uint8Array.from(bytes, character => character.charCodeAt(0))
 }
 
-function serializeSubscription(subscription: PushSubscription): WebPushSubscriptionRequest {
+function serializeSubscription(subscription: PushSubscription): WebPushSubscriptionInputWritable {
 	const json = subscription.toJSON()
 	if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
 		throw new Error('The browser returned an incomplete push subscription.')
@@ -62,7 +56,7 @@ function serializeSubscription(subscription: PushSubscription): WebPushSubscript
 
 	return {
 		endpoint: json.endpoint,
-		expiration_time: subscription.expirationTime,
+		expiration_time: subscription.expirationTime ?? undefined,
 		keys: {
 			p256dh: json.keys.p256dh,
 			auth: json.keys.auth,
@@ -75,18 +69,14 @@ async function getRegistration(): Promise<ServiceWorkerRegistration> {
 }
 
 async function registerSubscription(subscription: PushSubscription): Promise<void> {
-	const HTTP = AuthenticatedHTTPFactory()
-	await HTTP.put(
-		apiV2Url(`user/settings/web-push/subscriptions/${encodeURIComponent(getDeviceID())}`),
-		serializeSubscription(subscription),
-	)
+	await webPushSubscriptionUpsert({
+		path: {device_id: getDeviceID()},
+		body: serializeSubscription(subscription),
+	})
 }
 
 function isEndpointOwnershipConflict(error: unknown): boolean {
-	return typeof error === 'object'
-		&& error !== null
-		&& 'response' in error
-		&& (error as {response?: {status?: number}}).response?.status === 409
+	return (error as {status?: unknown} | null)?.status === 409
 }
 
 export function getWebPushAvailability(serverEnabled: boolean, publicKey: string): WebPushState {
@@ -178,8 +168,7 @@ export async function disableWebPush(): Promise<void> {
 	let serverError: unknown
 
 	try {
-		const HTTP = AuthenticatedHTTPFactory()
-		await HTTP.delete(apiV2Url(`user/settings/web-push/subscriptions/${encodeURIComponent(getDeviceID())}`))
+		await webPushSubscriptionDelete({path: {device_id: getDeviceID()}})
 	} catch (error) {
 		serverError = error
 	} finally {
@@ -200,6 +189,5 @@ export async function unsubscribeWebPushLocally(): Promise<void> {
 }
 
 export async function sendWebPushTest(): Promise<void> {
-	const HTTP = AuthenticatedHTTPFactory()
-	await HTTP.post(apiV2Url(`user/settings/web-push/subscriptions/${encodeURIComponent(getDeviceID())}/test`))
+	await webPushSubscriptionTest({path: {device_id: getDeviceID()}})
 }

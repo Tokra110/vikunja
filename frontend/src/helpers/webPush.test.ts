@@ -6,13 +6,10 @@ const {put, deleteRequest, post} = vi.hoisted(() => ({
 	post: vi.fn(),
 }))
 
-vi.mock('@/helpers/fetcher', () => ({
-	apiV2Url: (path: string) => `/api/v2/${path}`,
-	AuthenticatedHTTPFactory: () => ({
-		put,
-		delete: deleteRequest,
-		post,
-	}),
+vi.mock('@/client/generated', () => ({
+	webPushSubscriptionUpsert: put,
+	webPushSubscriptionDelete: deleteRequest,
+	webPushSubscriptionTest: post,
 }))
 
 import {
@@ -105,11 +102,27 @@ describe('Web Push browser integration', () => {
 			applicationServerKey: expect.any(Uint8Array),
 		})
 		expect(put).toHaveBeenCalledOnce()
-		expect(put.mock.calls[0][1]).toEqual({
-			endpoint: 'https://push.example.test/new',
-			expiration_time: 123456789,
-			keys: {p256dh: 'public-key', auth: 'auth-key'},
+		expect(put.mock.calls[0][0]).toEqual({
+			path: {device_id: localStorage.getItem('vikunja-web-push-device-id')},
+			body: {
+				endpoint: 'https://push.example.test/new',
+				expiration_time: 123456789,
+				keys: {p256dh: 'public-key', auth: 'auth-key'},
+			},
 		})
+	})
+
+	it('replaces a subscription whose endpoint belongs to another account', async () => {
+		const existing = subscription()
+		const {subscribe} = installBrowserMocks(existing)
+		put.mockRejectedValueOnce({status: 409, detail: 'endpoint already registered'})
+
+		await enableWebPush('BElwdWJsaWMta2V5')
+
+		expect(existing.unsubscribe).toHaveBeenCalledOnce()
+		expect(subscribe).toHaveBeenCalledOnce()
+		expect(put).toHaveBeenCalledTimes(2)
+		expect(put.mock.calls[1][0].body.endpoint).toBe('https://push.example.test/new')
 	})
 
 	it('reconciles an existing subscription without creating one', async () => {
